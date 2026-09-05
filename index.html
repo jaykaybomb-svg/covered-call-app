@@ -464,6 +464,34 @@
         loadAllData();
       };
 
+      // 거래 등록 (에러 알림창 보강)
+      const submitTrade = async () => {
+        try {
+          const payload = { 
+            trade_type: tradeForm.value.trade_type,
+            ticker: tradeForm.value.ticker.toUpperCase().trim(),
+            name: tradeForm.value.name ? tradeForm.value.name.trim() : tradeForm.value.ticker.toUpperCase().trim(),
+            shares: Number(tradeForm.value.shares),
+            price: Number(tradeForm.value.price),
+            trade_date: tradeForm.value.trade_date
+          };
+
+          const { data, error } = await supabase.table('transactions').insert([payload]);
+
+          if (error) {
+            alert("🚨 저장 실패 원인: " + error.message);
+            return;
+          }
+
+          alert("✅ 매수/거래 내역이 정상 등록되었습니다!");
+          showModal.value = false;
+          tradeForm.value = { trade_type: 'BUY', ticker: '', name: '', shares: null, price: null, trade_date: new Date().toISOString().split('T')[0] };
+          await loadAllData();
+        } catch (err) {
+          alert("🚨 시스템 오류: " + err.message);
+        }
+      };
+
       const formatNum = (v) => Number(v || 0).toLocaleString();
 
       onMounted(loadAllData);
