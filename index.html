@@ -750,28 +750,37 @@
 
         loading.value = true;
         try {
-          await fetchExchangeRate();
+          try {
+            await fetchExchangeRate();
+          } catch (eRate) {
+            console.warn("환율 조회 건너뜀:", eRate);
+          }
 
           const [txRes, divRes, priceRes] = await Promise.all([
-            supabaseClient.table('transactions').select('*').order('trade_date', { ascending: false }),
-            supabaseClient.table('dividends').select('*').order('pay_date', { ascending: false }),
-            supabaseClient.table('daily_prices').select('*')
+            supabaseClient.from('transactions').select('*').order('trade_date', { ascending: false }),
+            supabaseClient.from('dividends').select('*').order('pay_date', { ascending: false }),
+            supabaseClient.from('daily_prices').select('*')
           ]);
 
-          if (txRes.error) throw txRes.error;
-          if (divRes.error) throw divRes.error;
-          if (priceRes.error) throw priceRes.error;
+          if (txRes.error) throw new Error("매매내역: " + txRes.error.message);
+          if (divRes.error) throw new Error("분배금내역: " + divRes.error.message);
+          if (priceRes.error) throw new Error("종가시세: " + priceRes.error.message);
 
           transactions.value = txRes.data || [];
           dividends.value = divRes.data || [];
           
           const pMap = {};
-          (priceRes.data || []).forEach(p => { pMap[p.ticker.toUpperCase()] = p; });
+          (priceRes.data || []).forEach(p => { 
+            if (p && p.ticker) {
+              pMap[p.ticker.toUpperCase()] = p; 
+            }
+          });
           dailyPrices.value = pMap;
 
           showToast("데이터를 최신 상태로 갱신했습니다!");
         } catch (e) {
-          showToast("데이터 불러오기 실패: " + e.message, "error");
+          console.error("데이터 로딩 실패:", e);
+          showToast("데이터 불러오기 실패: " + (e.message || e), "error");
         } finally {
           loading.value = false;
         }
@@ -873,6 +882,7 @@
           const cleanName = t.name && t.name.trim() ? t.name.trim() : getStockName(cleanTicker);
 
           const payload = {
+            id: Date.now(),
             trade_type: t.trade_type,
             ticker: cleanTicker,
             name: cleanName,
@@ -881,7 +891,7 @@
             trade_date: t.trade_date
           };
 
-          const { error } = await supabaseClient.table('transactions').insert([payload]);
+          const { error } = await supabaseClient.from('transactions').insert([payload]);
           if (error) throw error;
 
           showToast("✅ 거래가 성공적으로 등록되었습니다!");
@@ -899,7 +909,7 @@
       const deleteTransaction = async (id) => {
         if (!confirm("이 매매 기록을 정말 삭제하시겠습니까? (삭제 시 보유수량과 평단가가 재계산됩니다)")) return;
         try {
-          const { error } = await supabaseClient.table('transactions').delete().eq('id', id);
+          const { error } = await supabaseClient.from('transactions').delete().eq('id', id);
           if (error) throw error;
           showToast("매매 내역이 삭제되었습니다.");
           await loadAllData();
@@ -925,6 +935,7 @@
         saving.value = true;
         try {
           const payload = {
+            id: Date.now(),
             ticker: d.ticker.trim().toUpperCase(),
             total_received: Number(d.total_received),
             status: d.status,
@@ -933,7 +944,7 @@
             dividend_per_share: 0
           };
 
-          const { error } = await supabaseClient.table('dividends').insert([payload]);
+          const { error } = await supabaseClient.from('dividends').insert([payload]);
           if (error) throw error;
 
           showToast("✅ 분배금 내역이 저장되었습니다!");
@@ -951,7 +962,7 @@
       const deleteDividend = async (id) => {
         if (!confirm("이 분배금 내역을 삭제하시겠습니까?")) return;
         try {
-          const { error } = await supabaseClient.table('dividends').delete().eq('id', id);
+          const { error } = await supabaseClient.from('dividends').delete().eq('id', id);
           if (error) throw error;
           showToast("분배금 내역이 삭제되었습니다.");
           await loadAllData();
@@ -963,7 +974,7 @@
       // 분배금 상태 변경 토글 (예수금 / 재매수 / 인출)
       const updateDivStatus = async (id, status) => {
         try {
-          const { error } = await supabaseClient.table('dividends').update({ status }).eq('id', id);
+          const { error } = await supabaseClient.from('dividends').update({ status }).eq('id', id);
           if (error) throw error;
           showToast("상태가 변경되었습니다.");
           await loadAllData();
