@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>커버드콜 자산관리 v2.0</title>
+  <title>Covered Call Tracker</title>
   
   <!-- iOS Safari PWA 전체화면 설정 -->
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -20,18 +20,30 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <style>
+    :root {
+      --bg: #0F171E;
+      --surface: #1A242D;
+      --surface-dark: #121A21;
+      --border: #263541;
+      --text-primary: #E8EEF2;
+      --text-secondary: #8FA0AF;
+      --accent: #00D2B4;
+      --red-burgundy: #6A313C;
+      --red-soft: #E8A3B0;
+    }
     body {
+      background-color: var(--bg);
+      color: var(--text-primary);
       -webkit-tap-highlight-color: transparent;
       padding-top: env(safe-area-inset-top);
       padding-bottom: env(safe-area-inset-bottom);
       font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", Roboto, sans-serif;
     }
-    /* 커스텀 스크롤바 숨김 (모바일 앱 느낌 강화) */
     .no-scrollbar::-webkit-scrollbar { display: none; }
     .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
   </style>
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen pb-28 select-none">
+<body class="min-h-screen pb-28 select-none">
 
 <div id="app" class="max-w-md mx-auto px-4 pt-3">
 
@@ -42,65 +54,82 @@
               leave-active-class="transition duration-150 ease-in"
               leave-from-class="opacity-100" leave-to-class="opacity-0">
     <div v-if="toastMessage" class="fixed top-5 left-4 right-4 max-w-md mx-auto z-50 p-3 rounded-2xl text-xs font-bold shadow-2xl flex items-center justify-between"
-         :class="toastType === 'success' ? 'bg-emerald-500 text-slate-950' : 'bg-red-500 text-white'">
-      <span><i :class="toastType === 'success' ? 'fa-solid fa-circle-check' : 'fa-solid fa-triangle-exclamation'" class="mr-2"></i>{{ toastMessage }}</span>
+         :class="toastType === 'success' ? 'bg-[#00D2B4] text-[#0F171E]' : 'bg-[#6A313C] text-[#E8EEF2] border border-[#6A313C]'">
+      <span><i :class="toastType === 'success' ? 'fa-solid fa-circle-check text-[#0F171E]' : 'fa-solid fa-circle-exclamation text-[#E8A3B0]'" class="mr-2"></i>{{ toastMessage }}</span>
       <button @click="toastMessage = ''" class="text-sm font-black ml-2 px-1">✕</button>
     </div>
   </transition>
 
-  <!-- 2. 헤더 & 실시간 환율 바 -->
-  <header class="py-2 mb-3">
+  <!-- 2. 영문 대형 타이틀 헤더 & 네이버 시세 연동 바 -->
+  <header class="py-2.5 mb-3">
     <div class="flex justify-between items-center">
-      <div>
-        <h1 class="text-xl font-black tracking-tight text-white flex items-center gap-2">
-          <i class="fa-solid fa-chart-pie text-emerald-400"></i> 커버드콜 트래커
-        </h1>
-        <p class="text-[11px] text-slate-400">배당락 방어 실질 총수익 & 복리 관리</p>
+      <div class="flex items-center gap-3">
+        <!-- 심플 세련된 심볼 아이콘 -->
+        <div class="w-10 h-10 rounded-2xl bg-[#1A242D] border border-[#263541] flex items-center justify-center shadow-md relative overflow-hidden flex-shrink-0">
+          <div class="absolute inset-0 bg-gradient-to-tr from-[#00D2B4]/20 to-transparent"></div>
+          <i class="fa-solid fa-layer-group text-[#00D2B4] text-base relative z-10"></i>
+        </div>
+
+        <!-- 영문 대형 폰트 타이틀 -->
+        <div>
+          <h1 class="text-xl sm:text-2xl font-black tracking-tight flex items-center gap-1.5 leading-none">
+            <span class="text-[#E8EEF2]">Covered Call</span>
+            <span class="text-[#00D2B4]">Tracker</span>
+          </h1>
+        </div>
       </div>
-      <button @click="loadAllData" class="text-xs bg-slate-900 hover:bg-slate-800 text-slate-300 px-3 py-1.5 rounded-full flex items-center gap-1.5 border border-slate-800 shadow-sm active:scale-95 transition-all">
-        <i class="fa-solid fa-rotate text-emerald-400" :class="{'fa-spin': loading}"></i> 갱신
+
+      <button @click="loadAllData" class="text-xs bg-[#1A242D] hover:bg-[#222E39] text-[#E8EEF2] px-3 py-1.5 rounded-full flex items-center gap-1.5 border border-[#263541] shadow-sm active:scale-95 transition-all flex-shrink-0">
+        <i class="fa-solid fa-rotate text-[#00D2B4]" :class="{'fa-spin': loading}"></i> 갱신
       </button>
     </div>
 
-    <!-- 환율 연동 정보 배지 -->
-    <div class="flex items-center justify-between bg-slate-900/80 border border-slate-800/90 rounded-xl px-3 py-1.5 mt-2.5 text-[11px]">
-      <div class="flex items-center gap-2 text-slate-300">
-        <span class="text-base">🇺🇸/🇰🇷</span>
-        <span>기준환율: <b class="text-amber-300 font-bold">₩{{ formatNum(exchangeRate) }}</b> / USD</span>
+    <!-- 정보 배지 바 -->
+    <div class="grid grid-cols-2 gap-2 mt-3 text-[11px]">
+      <div class="flex items-center gap-1.5 bg-[#1A242D] border border-[#263541] rounded-xl px-2.5 py-1.5 text-[#8FA0AF]">
+        <span>USD / KRW:</span>
+        <b class="text-[#E8EEF2] font-bold">₩{{ formatNum(exchangeRate) }}</b>
       </div>
-      <span class="text-[10px] text-slate-400 flex items-center gap-1">
-        <i class="fa-solid fa-circle text-[7px] text-emerald-400"></i> 실시간 반영
-      </span>
+      <div class="flex items-center justify-between bg-[#1A242D] border border-[#263541] rounded-xl px-2.5 py-1.5 text-[10px] text-[#00D2B4]">
+        <span class="flex items-center gap-1">
+          <i class="fa-solid fa-circle text-[6px] text-[#00D2B4]"></i> 네이버 증권 시세
+        </span>
+        <span class="text-[#8FA0AF] font-normal">실시간</span>
+      </div>
     </div>
   </header>
 
   <!-- 3. 총 자산 KPI 요약 카드 (통합 NAV) -->
-  <div class="bg-gradient-to-br from-slate-900 via-slate-850 to-slate-900 border border-slate-700/80 rounded-2xl p-4 shadow-xl mb-4">
+  <div class="bg-[#1A242D] border border-[#263541] rounded-2xl p-4 shadow-xl mb-4">
     <div class="flex justify-between items-start mb-1">
-      <span class="text-xs font-bold text-slate-400">통합 총 순자산 (주식+예수금)</span>
+      <span class="text-xs font-bold text-[#8FA0AF]">통합 총 순자산 (주식+예수금)</span>
       <span class="text-[11px] px-2 py-0.5 rounded-full font-bold" 
-            :class="totalTodayChange >= 0 ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'">
+            :class="totalTodayChange >= 0 ? 'bg-[#6A313C]/40 text-[#E8A3B0] border border-[#6A313C]' : 'bg-blue-500/15 text-blue-300 border border-blue-500/30'">
         전일비: {{ totalTodayChange >= 0 ? '▲ +' : '▼ ' }}{{ formatNum(totalTodayChange) }}원
       </span>
     </div>
     
-    <div class="text-3xl font-black text-white tracking-tight mb-2">
+    <div class="text-3xl font-black text-[#E8EEF2] tracking-tight mb-2">
       ₩ {{ formatNum(totalNetAsset) }}
     </div>
 
-    <div class="text-[11px] text-slate-400 flex gap-3 mb-3 pb-2.5 border-b border-slate-800/80">
-      <span>주식 평가액: <b class="text-slate-200 font-semibold">₩{{ formatNum(totalEvalAmount) }}</b></span>
-      <span>미사용 예수금: <b class="text-cyan-300 font-semibold">₩{{ formatNum(divSummary.remainingCash) }}</b></span>
+    <div class="text-[11px] text-[#8FA0AF] flex gap-3 mb-3 pb-2.5 border-b border-[#263541]">
+      <span>주식 평가액: <b class="text-[#E8EEF2] font-semibold">₩{{ formatNum(totalEvalAmount) }}</b></span>
+      <span>미사용 예수금: <b class="text-[#00D2B4] font-semibold">₩{{ formatNum(divSummary.remainingCash) }}</b></span>
     </div>
 
+    <!-- 손익 요약: 순수 주가 손익 vs 실질 총손익 (배당포함) -->
     <div class="grid grid-cols-2 gap-2 text-xs">
-      <div class="bg-slate-950/50 p-2.5 rounded-xl border border-slate-800/70">
-        <span class="text-[11px] text-slate-400 block mb-0.5">총 투자 원금</span>
-        <span class="font-bold text-slate-200">₩ {{ formatNum(totalInvested) }}</span>
+      <div class="bg-[#121A21] p-2.5 rounded-xl border border-[#22303C]">
+        <span class="text-[10px] text-[#8FA0AF] block mb-0.5">순수 주가 손익 (배당 제외)</span>
+        <span class="font-bold text-xs" :class="totalCapitalGain >= 0 ? 'text-[#E8A3B0]' : 'text-blue-300'">
+          {{ totalCapitalGain >= 0 ? '+' : '' }}{{ formatNum(totalCapitalGain) }}원
+          <span class="text-[10px]">({{ totalCapitalGainRate }}%)</span>
+        </span>
       </div>
-      <div class="bg-slate-950/50 p-2.5 rounded-xl border border-slate-800/70">
-        <span class="text-[11px] text-slate-400 block mb-0.5">실질 총손익 (배당+실현)</span>
-        <span class="font-bold" :class="netTotalProfit >= 0 ? 'text-red-400' : 'text-blue-400'">
+      <div class="bg-[#121A21] p-2.5 rounded-xl border border-[#22303C]">
+        <span class="text-[10px] text-[#8FA0AF] block mb-0.5">실질 총손익 (배당 포함)</span>
+        <span class="font-bold text-xs" :class="netTotalProfit >= 0 ? 'text-[#E8A3B0]' : 'text-blue-300'">
           {{ netTotalProfit >= 0 ? '+' : '' }}{{ formatNum(netTotalProfit) }}원
           <span class="text-[10px]">({{ totalReturnRate }}%)</span>
         </span>
@@ -108,32 +137,55 @@
     </div>
   </div>
 
-  <!-- 4. 네비게이션 탭 바 (수평 스크롤 지원) -->
-  <div class="flex bg-slate-900/90 border border-slate-800 p-1 rounded-2xl mb-4 text-xs font-bold overflow-x-auto no-scrollbar">
+  <!-- 4. 네비게이션 탭 바 (순서: 보유종목 -> 분배금내역 -> 매매원장 -> 배당캘린더 -> 재투자가이드 -> 복리목표) -->
+  <div class="flex gap-1.5 bg-[#1A242D] border border-[#263541] p-1.5 rounded-2xl mb-4 text-xs font-bold overflow-x-auto no-scrollbar">
+    
+    <!-- 탭 1: 보유 종목 -->
     <button @click="currentTab = 'holdings'" 
-            class="flex-shrink-0 px-3.5 py-2 rounded-xl transition-all"
-            :class="currentTab === 'holdings' ? 'bg-emerald-500 text-slate-950 shadow' : 'text-slate-400 hover:text-slate-200'">
-      📌 보유 종목 ({{ holdings.length }})
+            class="flex-shrink-0 px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap"
+            :class="currentTab === 'holdings' ? 'bg-[#00D2B4] text-[#0F171E] font-black shadow-md' : 'text-[#8FA0AF] hover:text-[#E8EEF2]'">
+      <i class="fa-solid fa-boxes-stacked text-xs"></i>
+      <span>보유 종목 ({{ holdings.length }})</span>
     </button>
-    <button @click="currentTab = 'calendar'" 
-            class="flex-shrink-0 px-3.5 py-2 rounded-xl transition-all"
-            :class="currentTab === 'calendar' ? 'bg-emerald-500 text-slate-950 shadow' : 'text-slate-400 hover:text-slate-200'">
-      📊 배당 캘린더
-    </button>
-    <button @click="currentTab = 'trades'" 
-            class="flex-shrink-0 px-3.5 py-2 rounded-xl transition-all"
-            :class="currentTab === 'trades' ? 'bg-emerald-500 text-slate-950 shadow' : 'text-slate-400 hover:text-slate-200'">
-      📜 매매 원장 ({{ transactions.length }})
-    </button>
+
+    <!-- 탭 2: 분배금 내역 -->
     <button @click="currentTab = 'dividends'" 
-            class="flex-shrink-0 px-3.5 py-2 rounded-xl transition-all"
-            :class="currentTab === 'dividends' ? 'bg-emerald-500 text-slate-950 shadow' : 'text-slate-400 hover:text-slate-200'">
-      💰 분배금 내역 ({{ dividends.length }})
+            class="flex-shrink-0 px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap"
+            :class="currentTab === 'dividends' ? 'bg-[#00D2B4] text-[#0F171E] font-black shadow-md' : 'text-[#8FA0AF] hover:text-[#E8EEF2]'">
+      <i class="fa-solid fa-coins text-xs"></i>
+      <span>분배금 내역 ({{ dividends.length }})</span>
     </button>
+
+    <!-- 탭 3: 매매 원장 -->
+    <button @click="currentTab = 'trades'" 
+            class="flex-shrink-0 px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap"
+            :class="currentTab === 'trades' ? 'bg-[#00D2B4] text-[#0F171E] font-black shadow-md' : 'text-[#8FA0AF] hover:text-[#E8EEF2]'">
+      <i class="fa-solid fa-receipt text-xs"></i>
+      <span>매매 원장 ({{ transactions.length }})</span>
+    </button>
+
+    <!-- 탭 4: 배당 캘린더 -->
+    <button @click="currentTab = 'calendar'" 
+            class="flex-shrink-0 px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap"
+            :class="currentTab === 'calendar' ? 'bg-[#00D2B4] text-[#0F171E] font-black shadow-md' : 'text-[#8FA0AF] hover:text-[#E8EEF2]'">
+      <i class="fa-regular fa-calendar-check text-xs"></i>
+      <span>배당 캘린더</span>
+    </button>
+
+    <!-- 탭 5: 배당 재투자 가이드 -->
+    <button @click="currentTab = 'reinvestGuide'" 
+            class="flex-shrink-0 px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap"
+            :class="currentTab === 'reinvestGuide' ? 'bg-[#00D2B4] text-[#0F171E] font-black shadow-md' : 'text-[#8FA0AF] hover:text-[#E8EEF2]'">
+      <i class="fa-solid fa-compass text-xs"></i>
+      <span>재투자 가이드</span>
+    </button>
+
+    <!-- 탭 6: 복리 목표 -->
     <button @click="currentTab = 'simulator'" 
-            class="flex-shrink-0 px-3.5 py-2 rounded-xl transition-all"
-            :class="currentTab === 'simulator' ? 'bg-emerald-500 text-slate-950 shadow' : 'text-slate-400 hover:text-slate-200'">
-      🚀 복리·목표
+            class="flex-shrink-0 px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap"
+            :class="currentTab === 'simulator' ? 'bg-[#00D2B4] text-[#0F171E] font-black shadow-md' : 'text-[#8FA0AF] hover:text-[#E8EEF2]'">
+      <i class="fa-solid fa-chart-line text-xs"></i>
+      <span>복리·목표</span>
     </button>
   </div>
 
@@ -141,320 +193,679 @@
   <!-- 탭 1: 보유 종목 리스트 (Holdings) -->
   <!-- ════════════════════════════════════════════════════════════════ -->
   <div v-if="currentTab === 'holdings'" class="space-y-3">
-    <!-- 분배금 라이프사이클 미니 요약 바 -->
-    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-3.5">
-      <div class="flex justify-between items-center mb-2">
-        <span class="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-          <i class="fa-solid fa-coins text-amber-400"></i> 분배금 누적 수령: <span class="text-amber-300">₩{{ formatNum(divSummary.totalReceived) }}</span>
+    <!-- 분배금 예수금 & 복리 재투자 현황 요약 바 -->
+    <div class="bg-[#1A242D] border border-[#263541] rounded-2xl p-3.5">
+      <div class="flex justify-between items-center mb-1.5">
+        <span class="text-xs font-bold text-[#8FA0AF] flex items-center gap-1.5">
+          <i class="fa-solid fa-coins text-[#00D2B4]"></i> 누적 분배금: <span class="text-[#E8EEF2]">₩{{ formatNum(divSummary.totalReceived) }}</span>
         </span>
-        <span class="text-xs font-bold text-emerald-400">평균 YOC: 연 {{ avgYOC }}%</span>
+        <span class="text-xs font-bold text-[#00D2B4]">남은 예수금: ₩{{ formatNum(divSummary.remainingCash) }}</span>
       </div>
-      <div class="flex justify-between text-[10px] text-slate-400 mb-1">
-        <span>재투자 {{ divSummary.reinvestRate }}%</span>
-        <span>미사용 예수금 {{ divSummary.cashRate }}% (₩{{ formatNum(divSummary.remainingCash) }})</span>
-        <span>외부인출 {{ divSummary.withdrawRate }}%</span>
+      
+      <div class="flex justify-between text-[10px] text-[#8FA0AF] mb-1">
+        <span class="text-[#00D2B4] font-semibold">주식 재매수 사용: ₩{{ formatNum(divSummary.reinvested) }} ({{ divSummary.reinvestRate }}%)</span>
+        <span class="text-[#8FA0AF]">외부 인출: ₩{{ formatNum(divSummary.withdrawn) }}</span>
       </div>
-      <div class="w-full h-2 bg-slate-950 rounded-full overflow-hidden flex border border-slate-800">
-        <div :style="{ width: divSummary.reinvestRate + '%' }" class="bg-emerald-500"></div>
-        <div :style="{ width: divSummary.cashRate + '%' }" class="bg-cyan-500"></div>
-        <div :style="{ width: divSummary.withdrawRate + '%' }" class="bg-slate-600"></div>
+      
+      <div class="w-full h-2 bg-[#121A21] rounded-full overflow-hidden flex border border-[#22303C]">
+        <div :style="{ width: divSummary.reinvestRate + '%' }" class="bg-[#00D2B4]" title="주식 재매수 사용"></div>
+        <div :style="{ width: divSummary.cashRate + '%' }" class="bg-blue-400" title="남은 예수금"></div>
+        <div :style="{ width: divSummary.withdrawRate + '%' }" class="bg-slate-600" title="외부 인출"></div>
       </div>
+    </div>
+
+    <!-- 시세 갱신 팁 배너 -->
+    <div class="bg-[#1A242D]/80 border border-[#263541] rounded-xl p-2.5 flex items-center justify-between text-[11px] text-[#8FA0AF]">
+      <span class="flex items-center gap-1.5">
+        <i class="fa-solid fa-circle-info text-[#00D2B4]"></i>
+        <span>가격 클릭 시 실시간 시세 직접 수정 가능</span>
+      </span>
+      <span class="text-[#8FA0AF] text-[10px]">네이버금융 기준</span>
     </div>
 
     <!-- 종목 카드들 -->
-    <div v-if="holdings.length === 0" class="text-center py-12 text-slate-500 text-xs bg-slate-900/40 rounded-2xl border border-dashed border-slate-800">
-      <i class="fa-solid fa-folder-open text-3xl mb-2 text-slate-600 block"></i>
-      등록된 보유 종목이 없습니다.<br>하단의 <b>[➕ 거래 / 분배금 입력하기]</b> 버튼을 눌러 매수를 기록하세요.
+    <div v-if="holdings.length === 0" class="text-center py-12 text-[#8FA0AF] text-xs bg-[#1A242D]/40 rounded-2xl border border-dashed border-[#263541]">
+      <i class="fa-solid fa-folder-open text-3xl mb-2 text-[#8FA0AF]/50 block"></i>
+      등록된 보유 종목이 없습니다.<br>하단의 <b>[거래 / 분배금 입력하기]</b> 버튼을 눌러 매수를 기록하세요.
     </div>
 
-    <div v-for="item in holdings" :key="item.ticker" class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-md">
+    <div v-for="item in holdings" :key="item.ticker" class="bg-[#1A242D] border border-[#263541] rounded-2xl p-4 shadow-md">
       <div class="flex justify-between items-start mb-2">
         <div>
           <div class="flex items-center gap-1.5">
-            <span class="text-xs">{{ item.market === 'US' ? '🇺🇸' : '🇰🇷' }}</span>
-            <h3 class="text-sm font-black text-white">{{ item.name }}</h3>
+            <span class="text-[10px] px-1 py-0.2 rounded bg-[#121A21] text-[#8FA0AF] border border-[#22303C] font-mono">{{ item.market }}</span>
+            <h3 class="text-sm font-black text-[#E8EEF2]">{{ item.name }}</h3>
           </div>
-          <span class="text-[11px] text-slate-400 mt-0.5 block">{{ item.ticker }} · <b>{{ item.shares }}</b>주 보유</span>
+          <span class="text-[11px] text-[#8FA0AF] mt-0.5 block">{{ item.ticker }} · 총 <b>{{ item.shares }}</b>주</span>
         </div>
-        <div class="text-right">
-          <div class="text-sm font-extrabold text-white">
-            {{ item.market === 'US' ? '$' + item.closePrice : '₩' + formatNum(item.closePrice) }}
+        
+        <!-- 가격 및 수정 영역 -->
+        <div @click="editPrice(item)" class="text-right cursor-pointer group bg-[#121A21] hover:bg-[#18232D] px-2.5 py-1.5 rounded-xl border border-[#22303C] transition-all">
+          <div class="text-sm font-extrabold text-[#E8EEF2] flex items-center justify-end gap-1.5">
+            <span>{{ item.market === 'US' ? '$' + item.closePrice : '₩' + formatNum(item.closePrice) }}</span>
+            <span class="text-[10px] text-[#8FA0AF] group-hover:text-[#00D2B4] transition-colors">
+              <i class="fa-solid fa-pen-to-square"></i>
+            </span>
           </div>
-          <div class="text-[11px] font-bold" :class="item.changePct >= 0 ? 'text-red-400' : 'text-blue-400'">
-            {{ item.changePct >= 0 ? '▲ +' : '▼ ' }}{{ item.changePct }}%
+          <div class="flex items-center justify-end gap-1 mt-0.5">
+            <span v-if="!item.hasPrice" class="text-[9px] bg-[#6A313C]/40 text-[#E8A3B0] border border-[#6A313C] px-1 py-0.2 rounded font-normal">평단가대체</span>
+            <span class="text-[11px] font-bold" :class="item.changePct >= 0 ? 'text-[#E8A3B0]' : 'text-blue-300'">
+              {{ item.changePct >= 0 ? '▲ +' : '▼ ' }}{{ item.changePct }}%
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 수량 구분 배지: 현금 매수 수량 vs 분배금 재투자 수량 -->
+      <div class="bg-[#121A21] border border-[#22303C] rounded-xl p-2.5 my-2">
+        <div class="flex justify-between items-center text-[11px] mb-1.5">
+          <div class="flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
+            <span class="text-[#8FA0AF]">현금 투입: <b>{{ item.cashShares }}주</b> ({{ item.cashRatio }}%)</span>
+          </div>
+          <div class="flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-[#00D2B4]"></span>
+            <span class="text-[#00D2B4] font-bold">배당 재매수: <b>{{ item.reinvestShares }}주</b> ({{ item.reinvestRatio }}%)</span>
+          </div>
+        </div>
+        <!-- 수량 비율 게이지 바 -->
+        <div class="w-full h-1.5 bg-[#1A242D] rounded-full overflow-hidden flex">
+          <div :style="{ width: item.cashRatio + '%' }" class="bg-blue-400"></div>
+          <div :style="{ width: item.reinvestRatio + '%' }" class="bg-[#00D2B4]"></div>
+        </div>
+        
+        <!-- 배당이 스스로 불려준 복리 주식 & 그 주식이 가져온 분배금 -->
+        <div v-if="item.reinvestShares > 0" class="mt-2 pt-2 border-t border-[#22303C] space-y-1 text-right">
+          <div class="text-[11px] text-[#00D2B4] font-bold flex items-center justify-end gap-1.5">
+            <i class="fa-solid fa-arrow-trend-up text-[#00D2B4]"></i>
+            <span>배당이 스스로 불려준 복리 주식:</span>
+            <span class="text-[#E8EEF2] font-black">+{{ item.reinvestShares }}주</span>
+          </div>
+          <div class="text-[11px] text-[#00D2B4] font-bold flex items-center justify-end gap-1.5">
+            <i class="fa-solid fa-coins text-[#00D2B4]"></i>
+            <span>배당 재매수 주식이 가져온 분배금:</span>
+            <span class="text-[#E8EEF2] font-black">+₩ {{ formatNum(item.reinvestDividend) }}</span>
           </div>
         </div>
       </div>
 
       <!-- 상세 지표 그리드 -->
-      <div class="grid grid-cols-2 gap-2 bg-slate-950/60 p-2.5 rounded-xl text-[11px] my-2.5 border border-slate-800/80">
+      <div class="grid grid-cols-2 gap-2 bg-[#121A21] p-2.5 rounded-xl text-[11px] my-2 border border-[#22303C]">
         <div>
-          <span class="text-slate-400">평균 단가:</span>
-          <b class="text-slate-200 block">{{ item.market === 'US' ? '$' + formatNum(item.avgPrice) : '₩' + formatNum(item.avgPrice) }}</b>
-        </div>
-        <div>
-          <span class="text-slate-400">평가 금액:</span>
-          <b class="text-slate-200 block">₩{{ formatNum(item.evalAmountKRW) }}</b>
-          <span v-if="item.market === 'US'" class="text-[9px] text-slate-400 font-normal">(${{ formatNum(item.evalAmountUSD) }})</span>
+          <span class="text-[#8FA0AF]">평균 단가:</span>
+          <b class="text-[#E8EEF2] block">{{ item.market === 'US' ? '$' + formatNum(item.avgPrice) : '₩' + formatNum(item.avgPrice) }}</b>
         </div>
         <div>
-          <span class="text-slate-400">누적 수령 분배금:</span>
-          <b class="text-amber-400 block">₩{{ formatNum(item.totalDividend) }}</b>
+          <span class="text-[#8FA0AF]">평가 금액:</span>
+          <b class="text-[#E8EEF2] block">₩{{ formatNum(item.evalAmountKRW) }}</b>
+          <span v-if="item.market === 'US'" class="text-[9px] text-[#8FA0AF] font-normal">(${{ formatNum(item.evalAmountUSD) }})</span>
         </div>
         <div>
-          <span class="text-slate-400">원금대비 배당률(YOC):</span>
-          <b class="text-emerald-400 block">연 {{ item.yoc }}%</b>
+          <span class="text-[#8FA0AF]">순수 현금 원금:</span>
+          <b class="text-[#8FA0AF] block">₩{{ formatNum(item.totalCostKRW) }}</b>
+        </div>
+        <div>
+          <span class="text-[#8FA0AF]">누적 수령 분배금:</span>
+          <b class="text-[#00D2B4] block">₩{{ formatNum(item.totalDividend) }}</b>
         </div>
       </div>
 
-      <!-- 실질 총수익률 표시 -->
-      <div class="flex justify-between items-center text-xs pt-2 border-t border-slate-800/80">
-        <span class="text-slate-400 text-[11px]">배당포함 실질 총수익</span>
-        <span class="font-extrabold" :class="item.totalReturn >= 0 ? 'text-red-400' : 'text-blue-400'">
-          {{ item.totalReturn >= 0 ? '+' : '' }}{{ formatNum(item.totalReturn) }}원 ({{ item.returnRate }}%)
-        </span>
-      </div>
-    </div>
-  </div>
-
-  <!-- ════════════════════════════════════════════════════════════════ -->
-  <!-- 탭 2: 월별 배당 캘린더 & 현금흐름 차트 (Calendar) -->
-  <!-- ════════════════════════════════════════════════════════════════ -->
-  <div v-if="currentTab === 'calendar'" class="space-y-4">
-    <!-- 월 목표 대비 달성률 카드 -->
-    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
-      <div class="flex justify-between items-center mb-2">
-        <span class="text-xs font-bold text-slate-300">🎯 이번 달 분배금 달성률</span>
-        <span class="text-xs font-black text-amber-300">₩{{ formatNum(thisMonthDividend) }} / ₩{{ formatNum(monthlyGoal) }}</span>
-      </div>
-      <div class="w-full h-3 bg-slate-950 rounded-full overflow-hidden border border-slate-800 p-0.5">
-        <div class="h-full bg-gradient-to-r from-amber-500 to-emerald-400 rounded-full transition-all duration-500"
-             :style="{ width: Math.min(100, (thisMonthDividend / (monthlyGoal || 1)) * 100) + '%' }"></div>
-      </div>
-      <div class="flex justify-between items-center mt-2 text-[10px] text-slate-400">
-        <span>달성률: <b class="text-white">{{ ((thisMonthDividend / (monthlyGoal || 1)) * 100).toFixed(1) }}%</b></span>
-        <button @click="changeMonthlyGoal" class="underline text-slate-400 hover:text-emerald-400">목표금액 변경</button>
-      </div>
-    </div>
-
-    <!-- 월별 현금흐름 막대 차트 (CSS 기반) -->
-    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
-      <h3 class="text-xs font-bold text-slate-300 mb-3 flex items-center gap-1.5">
-        <i class="fa-solid fa-chart-simple text-emerald-400"></i> 최근 월별 분배금 수령 추이
-      </h3>
-
-      <div v-if="monthlyChartData.length === 0" class="text-center py-8 text-slate-500 text-xs">
-        아직 수령한 분배금 데이터가 없습니다.
-      </div>
-
-      <div v-else class="space-y-2.5">
-        <div v-for="bar in monthlyChartData" :key="bar.month" class="text-xs">
-          <div class="flex justify-between text-[11px] mb-1">
-            <span class="text-slate-300 font-semibold">{{ bar.month }}</span>
-            <span class="font-bold text-amber-300">₩{{ formatNum(bar.amount) }}</span>
-          </div>
-          <div class="w-full h-3 bg-slate-950 rounded-full overflow-hidden border border-slate-800">
-            <div class="h-full bg-emerald-500 rounded-full transition-all"
-                 :style="{ width: bar.pct + '%' }"></div>
-          </div>
+      <!-- [요청 반영] 원금대비 누적 분배율 및 하단에 "두 항목 다 최근 분배율"로 표기 -->
+      <div class="bg-[#121A21] border border-[#22303C] rounded-xl p-2.5 mb-2">
+        <div class="flex justify-between items-center text-xs mb-1.5">
+          <span class="text-[#8FA0AF] text-[11px] flex items-center gap-1">
+            <i class="fa-solid fa-percent text-[10px] text-[#00D2B4]"></i> 원금 대비 누적 분배율:
+          </span>
+          <span class="font-extrabold text-xs text-[#00D2B4]">
+            +{{ item.divYieldOnCost }}% 회수
+          </span>
         </div>
-      </div>
-    </div>
-
-    <!-- 배당 수령 일정 타임라인 -->
-    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
-      <h3 class="text-xs font-bold text-slate-300 mb-3 flex items-center gap-1.5">
-        <i class="fa-solid fa-calendar-days text-cyan-400"></i> 배당 수령 상세 기록
-      </h3>
-
-      <div v-if="dividends.length === 0" class="text-center py-6 text-slate-500 text-xs">
-        기록된 배당 내역이 없습니다.
-      </div>
-
-      <div v-else class="space-y-2">
-        <div v-for="d in dividends.slice(0, 15)" :key="d.id" class="flex justify-between items-center p-2.5 bg-slate-950/60 border border-slate-800/80 rounded-xl text-xs">
+        <!-- 연분배율 대신 "두 항목 모두 최근 회차 분배율" 표기 -->
+        <div class="grid grid-cols-2 gap-2 pt-1.5 border-t border-[#22303C] text-[10px]">
           <div>
-            <div class="flex items-center gap-1.5">
-              <span class="font-bold text-white">{{ getStockName(d.ticker) }}</span>
-              <span class="text-[10px] text-slate-400">({{ d.ticker }})</span>
-            </div>
-            <span class="text-[10px] text-slate-400">{{ d.pay_date }}</span>
+            <span class="text-[#8FA0AF] block">최근 실질 분배율(원금):</span>
+            <b class="text-[#E8EEF2] font-extrabold text-[11px]">월 {{ item.recentRealYield }}%</b>
           </div>
-          <div class="text-right">
-            <div class="font-black text-amber-300">₩{{ formatNum(d.total_received) }}</div>
-            <span class="text-[9px] px-1.5 py-0.5 rounded font-bold"
-                  :class="d.status === 'REINVEST' ? 'bg-emerald-950 text-emerald-300' : (d.status === 'CASH' ? 'bg-cyan-950 text-cyan-300' : 'bg-slate-800 text-slate-400')">
-              {{ d.status === 'REINVEST' ? '재매수' : (d.status === 'CASH' ? '예수금' : '인출') }}
-            </span>
+          <div>
+            <span class="text-[#8FA0AF] block">최근 기준일 분배율:</span>
+            <b class="text-[#00D2B4] font-extrabold text-[11px]">월 {{ item.recentMarketYield }}%</b>
           </div>
+        </div>
+      </div>
+
+      <!-- 수익률 2단 비교: 배당 제외 순수익률 vs 배당포함 실질 총수익률 -->
+      <div class="space-y-1.5 pt-2 border-t border-[#263541]">
+        <!-- 1) 배당 제외 순수 주가 수익률 -->
+        <div class="flex justify-between items-center text-xs">
+          <span class="text-[#8FA0AF] text-[11px] flex items-center gap-1">
+            <i class="fa-solid fa-chart-simple text-[10px] text-[#8FA0AF]"></i> 순수 주가 손익 (배당 제외)
+          </span>
+          <span class="font-bold text-xs" :class="item.capitalGainKRW >= 0 ? 'text-[#E8A3B0]' : 'text-blue-300'">
+            {{ item.capitalGainKRW >= 0 ? '+' : '' }}{{ formatNum(item.capitalGainKRW) }}원 ({{ item.capitalGainRate }}%)
+          </span>
+        </div>
+
+        <!-- 2) 배당 포함 실질 총수익률 -->
+        <div class="flex justify-between items-center text-xs bg-[#121A21] p-2 rounded-xl border border-[#22303C]">
+          <span class="text-[#E8EEF2] font-extrabold text-xs flex items-center gap-1">
+            <i class="fa-solid fa-award text-[11px] text-[#00D2B4]"></i> 배당포함 실질 총수익
+          </span>
+          <span class="font-black text-sm" :class="item.totalReturn >= 0 ? 'text-[#E8A3B0]' : 'text-blue-300'">
+            {{ item.totalReturn >= 0 ? '+' : '' }}{{ formatNum(item.totalReturn) }}원 ({{ item.returnRate }}%)
+          </span>
         </div>
       </div>
     </div>
   </div>
 
   <!-- ════════════════════════════════════════════════════════════════ -->
-  <!-- 탭 3: 매매 원장 전체 내역 (Trades History) -->
-  <!-- ════════════════════════════════════════════════════════════════ -->
-  <div v-if="currentTab === 'trades'" class="space-y-3">
-    <!-- 필터 버튼 바 -->
-    <div class="flex justify-between items-center bg-slate-900 p-2 rounded-xl border border-slate-800 text-xs">
-      <div class="flex gap-1">
-        <button @click="tradeFilter = 'ALL'" class="px-2.5 py-1 rounded-lg font-bold transition-all"
-                :class="tradeFilter === 'ALL' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400'">전체</button>
-        <button @click="tradeFilter = 'BUY'" class="px-2.5 py-1 rounded-lg font-bold transition-all"
-                :class="tradeFilter === 'BUY' ? 'bg-red-500/30 text-red-300 border border-red-500/50' : 'text-slate-400'">매수만</button>
-        <button @click="tradeFilter = 'SELL'" class="px-2.5 py-1 rounded-lg font-bold transition-all"
-                :class="tradeFilter === 'SELL' ? 'bg-blue-500/30 text-blue-300 border border-blue-500/50' : 'text-slate-400'">매도만</button>
-      </div>
-      <span class="text-[11px] text-slate-400">총 {{ filteredTrades.length }}건</span>
-    </div>
-
-    <div v-if="filteredTrades.length === 0" class="text-center py-12 text-slate-500 text-xs bg-slate-900/40 rounded-2xl border border-dashed border-slate-800">
-      거래 내역이 없습니다.
-    </div>
-
-    <!-- 매매 거래 카드 목록 -->
-    <div v-for="tx in filteredTrades" :key="tx.id" class="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 shadow-md">
-      <div class="flex justify-between items-start mb-1.5">
-        <div>
-          <div class="flex items-center gap-1.5">
-            <span :class="tx.trade_type === 'BUY' ? 'bg-red-500/20 text-red-400 border border-red-500/40' : 'bg-blue-500/20 text-blue-400 border border-blue-500/40'"
-                  class="text-[10px] px-1.5 py-0.5 rounded font-black">
-              {{ tx.trade_type === 'BUY' ? '매수' : '매도' }}
-            </span>
-            <h4 class="text-xs font-black text-white">{{ tx.name || getStockName(tx.ticker) }}</h4>
-          </div>
-          <span class="text-[10px] text-slate-400 block mt-0.5">{{ tx.ticker }} · {{ tx.trade_date }}</span>
-        </div>
-
-        <!-- 삭제 버튼 (원클릭 삭제 지원) -->
-        <button @click="deleteTransaction(tx.id)" class="text-slate-500 hover:text-red-400 p-1 active:scale-90 transition-all text-xs" title="삭제">
-          <i class="fa-solid fa-trash-can"></i>
-        </button>
-      </div>
-
-      <div class="flex justify-between items-center bg-slate-950/60 p-2 rounded-xl text-[11px] border border-slate-800/80 mt-2">
-        <span class="text-slate-400">{{ tx.shares }}주 @ ₩{{ formatNum(tx.price) }}</span>
-        <span class="font-extrabold text-white">₩{{ formatNum(tx.shares * tx.price) }}</span>
-      </div>
-    </div>
-  </div>
-
-  <!-- ════════════════════════════════════════════════════════════════ -->
-  <!-- 탭 4: 분배금 수령 내역 관리 (Dividend Logs) -->
+  <!-- 탭 2: 분배금 수령 내역 관리 (수정 기능 완벽 탑재) -->
   <!-- ════════════════════════════════════════════════════════════════ -->
   <div v-if="currentTab === 'dividends'" class="space-y-3">
     <!-- 상단 요약 바 -->
-    <div class="flex justify-between items-center bg-slate-900 p-2.5 rounded-xl border border-slate-800 text-xs">
-      <span class="text-slate-400">총 수령 건수: <b class="text-white">{{ dividends.length }}건</b></span>
-      <span class="text-slate-400">누적: <b class="text-amber-400 font-black">₩{{ formatNum(divSummary.totalReceived) }}</b></span>
+    <div class="bg-[#1A242D] p-3 rounded-xl border border-[#263541] text-xs space-y-1">
+      <div class="flex justify-between items-center">
+        <span class="text-[#8FA0AF]">총 누적 분배금:</span>
+        <b class="text-[#00D2B4] font-black text-sm">₩{{ formatNum(divSummary.totalReceived) }}</b>
+      </div>
+      <div class="flex justify-between items-center text-[11px] text-[#8FA0AF] pt-1 border-t border-[#263541]">
+        <span>주식 재매수에 쓴 돈: <b class="text-[#00D2B4]">₩{{ formatNum(divSummary.reinvested) }}</b></span>
+        <span>남은 예수금: <b class="text-blue-400">₩{{ formatNum(divSummary.remainingCash) }}</b></span>
+      </div>
     </div>
 
-    <div v-if="dividends.length === 0" class="text-center py-12 text-slate-500 text-xs bg-slate-900/40 rounded-2xl border border-dashed border-slate-800">
+    <!-- 안내 메시지 -->
+    <div class="bg-[#1A242D]/80 border border-[#263541] rounded-xl p-2.5 text-[11px] text-[#8FA0AF] flex items-start gap-2">
+      <i class="fa-solid fa-circle-info text-[#00D2B4] mt-0.5"></i>
+      <span>각 분배금 내역의 우측 <b>수정(✏️) 버튼</b>을 누르면 지급일자, 실수령액, 분배기준일, 기준가격을 언제든 자유롭게 수정할 수 있습니다!</span>
+    </div>
+
+    <div v-if="dividends.length === 0" class="text-center py-12 text-[#8FA0AF] text-xs bg-[#1A242D]/40 rounded-2xl border border-dashed border-[#263541]">
       등록된 분배금 내역이 없습니다.
     </div>
 
     <!-- 분배금 카드 목록 -->
-    <div v-for="div in dividends" :key="div.id" class="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 shadow-md">
+    <div v-for="div in enrichedDividends" :key="div.id" class="bg-[#1A242D] border border-[#263541] rounded-2xl p-3.5 shadow-md">
       <div class="flex justify-between items-start mb-2">
         <div>
-          <h4 class="text-xs font-black text-white">{{ getStockName(div.ticker) }}</h4>
-          <span class="text-[10px] text-slate-400">{{ div.ticker }} · 지급일: {{ div.pay_date }}</span>
+          <div class="flex items-center gap-1.5">
+            <h4 class="text-xs font-black text-[#E8EEF2]">{{ getStockName(div.ticker) }}</h4>
+            <span class="text-[10px] text-[#8FA0AF]">({{ div.ticker }})</span>
+          </div>
+          <!-- 지급일 및 그달 분배기준일 명시 -->
+          <div class="flex items-center gap-2 mt-0.5 text-[10px] text-[#8FA0AF]">
+            <span>지급일: <b>{{ div.pay_date }}</b></span>
+            <span class="text-[#00D2B4] flex items-center gap-1">
+              <i class="fa-regular fa-calendar-check text-[9px]"></i> 분배기준일: <b>{{ div.recordDate }}</b>
+            </span>
+          </div>
         </div>
-        <div class="flex items-center gap-2">
-          <span class="text-sm font-black text-amber-300">₩{{ formatNum(div.total_received) }}</span>
-          <button @click="deleteDividend(div.id)" class="text-slate-500 hover:text-red-400 p-1 active:scale-90 transition-all text-xs" title="삭제">
+
+        <!-- [요청 반영] 분배금 수정 및 삭제 액션 버튼 그룹 -->
+        <div class="flex items-center gap-1">
+          <span class="text-sm font-black text-[#00D2B4] mr-1">₩{{ formatNum(div.total_received) }}</span>
+          <button @click="openEditDividend(div)" class="text-[#8FA0AF] hover:text-[#00D2B4] p-1.5 active:scale-90 transition-all text-xs" title="분배금 수정">
+            <i class="fa-solid fa-pen"></i>
+          </button>
+          <button @click="deleteDividend(div.id)" class="text-[#8FA0AF] hover:text-[#E8A3B0] p-1.5 active:scale-90 transition-all text-xs" title="삭제">
             <i class="fa-solid fa-trash-can"></i>
           </button>
         </div>
       </div>
 
-      <!-- 상태 변경 3단 토글 -->
-      <div class="flex justify-between items-center pt-2 border-t border-slate-800/80 text-[11px]">
-        <span class="text-slate-400">상태:</span>
-        <div class="flex gap-1">
-          <button @click="updateDivStatus(div.id, 'CASH')" 
-                  class="px-2 py-1 rounded-lg text-[10px] font-bold transition-all"
-                  :class="div.status === 'CASH' ? 'bg-cyan-500 text-slate-950 shadow' : 'bg-slate-950 text-slate-400 border border-slate-800'">예수금</button>
-          <button @click="updateDivStatus(div.id, 'REINVEST')" 
-                  class="px-2 py-1 rounded-lg text-[10px] font-bold transition-all"
-                  :class="div.status === 'REINVEST' ? 'bg-emerald-500 text-slate-950 shadow' : 'bg-slate-950 text-slate-400 border border-slate-800'">재매수</button>
-          <button @click="updateDivStatus(div.id, 'WITHDRAW')" 
-                  class="px-2 py-1 rounded-lg text-[10px] font-bold transition-all"
-                  :class="div.status === 'WITHDRAW' ? 'bg-slate-600 text-white shadow' : 'bg-slate-950 text-slate-400 border border-slate-800'">인출</button>
+      <!-- 주당 분배금 & 분배기준일 주가 기준 분배율 & 실질 분배율 3단 지표 박스 -->
+      <div class="bg-[#121A21] border border-[#22303C] rounded-xl p-2.5 my-2 text-[11px] space-y-1.5">
+        <div class="flex justify-between items-center">
+          <span class="text-[#8FA0AF] flex items-center gap-1">
+            <i class="fa-solid fa-coins text-[#00D2B4] text-[10px]"></i> 주당 분배금:
+          </span>
+          <b class="text-[#E8EEF2] font-extrabold text-xs">
+            {{ div.isUS ? '$' + div.dps : '₩' + formatNum(div.dps) }} / 주
+            <span v-if="div.sharesUsed > 0" class="text-[9px] text-[#8FA0AF] font-normal">({{ div.sharesUsed }}주 기준)</span>
+          </b>
+        </div>
+        
+        <div class="grid grid-cols-2 gap-2 pt-1.5 border-t border-[#22303C] text-[10px]">
+          <!-- 분배기준일 기준 공식 분배율 -->
+          <div @click="openEditDividend(div)" class="cursor-pointer group hover:bg-[#1A242D] p-1 rounded-lg transition-all">
+            <div class="flex items-center justify-between">
+              <span class="text-[#8FA0AF] block">분배기준일 분배율:</span>
+              <i class="fa-solid fa-pen-to-square text-[9px] text-[#8FA0AF] group-hover:text-[#00D2B4]"></i>
+            </div>
+            <b class="text-[#00D2B4] text-[11px]">월 {{ div.marketYieldMonth }}% <span class="font-normal text-[9px] text-[#8FA0AF]">(연 {{ div.marketYieldAnnual }}%)</span></b>
+            <span class="text-[9px] text-[#8FA0AF] block mt-0.5">기준가: {{ div.isUS ? '$' + div.basePrice : '₩' + formatNum(div.basePrice) }}</span>
+          </div>
+
+          <!-- 실질 분배율 (내 매수평단가 기준 YOC) -->
+          <div class="p-1">
+            <span class="text-[#8FA0AF] block">실질 분배율 (내 원금 YOC):</span>
+            <b class="text-[#E8EEF2] text-[11px]">월 {{ div.realYieldMonth }}% <span class="font-normal text-[9px] text-[#00D2B4]">(연 {{ div.realYieldAnnual }}%)</span></b>
+            <span class="text-[9px] text-[#8FA0AF] block mt-0.5">내 평단가: {{ div.isUS ? '$' + div.avgP : '₩' + formatNum(div.avgP) }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 보관/인출 상태 관리 -->
+      <div class="flex justify-between items-center pt-1.5 border-t border-[#263541] text-[11px]">
+        <span class="text-[#8FA0AF]">보관 상태:</span>
+        <div class="flex gap-1.5 items-center">
+          <span v-if="div.status !== 'WITHDRAW'" class="text-[10px] text-[#00D2B4] bg-[#00D2B4]/10 border border-[#00D2B4]/30 px-2 py-0.5 rounded font-semibold">
+            예수금 보관 (재매수 대기)
+          </span>
+          <span v-else class="text-[10px] text-[#8FA0AF] bg-[#121A21] border border-[#22303C] px-2 py-0.5 rounded font-semibold">
+            생활비 등 외부 인출됨
+          </span>
+          <button @click="toggleWithdraw(div)" class="text-[10px] underline text-[#8FA0AF] hover:text-[#E8EEF2] ml-1">
+            {{ div.status === 'WITHDRAW' ? '예수금으로 복구' : '외부 인출로 변경' }}
+          </button>
         </div>
       </div>
     </div>
   </div>
 
   <!-- ════════════════════════════════════════════════════════════════ -->
-  <!-- 탭 5: 복리 재투자 & 은퇴 목표 계산기 (Simulator) -->
+  <!-- 탭 3: 매매 원장 전체 내역 (수정 기능 완벽 탑재) -->
+  <!-- ════════════════════════════════════════════════════════════════ -->
+  <div v-if="currentTab === 'trades'" class="space-y-3">
+    <!-- 필터 버튼 바 -->
+    <div class="flex justify-between items-center bg-[#1A242D] p-2 rounded-xl border border-[#263541] text-xs">
+      <div class="flex gap-1 overflow-x-auto no-scrollbar">
+        <button @click="tradeFilter = 'ALL'" class="px-2 py-1 rounded-lg font-bold transition-all text-[11px]"
+                :class="tradeFilter === 'ALL' ? 'bg-[#00D2B4] text-[#0F171E]' : 'text-[#8FA0AF]'">전체</button>
+        <button @click="tradeFilter = 'BUY'" class="px-2 py-1 rounded-lg font-bold transition-all text-[11px]"
+                :class="tradeFilter === 'BUY' ? 'bg-blue-500 text-white' : 'text-[#8FA0AF]'">현금매수</button>
+        <button @click="tradeFilter = 'REINVEST'" class="px-2 py-1 rounded-lg font-bold transition-all text-[11px]"
+                :class="tradeFilter === 'REINVEST' ? 'bg-[#00D2B4] text-[#0F171E]' : 'text-[#8FA0AF]'">배당재매수</button>
+        <button @click="tradeFilter = 'SELL'" class="px-2 py-1 rounded-lg font-bold transition-all text-[11px]"
+                :class="tradeFilter === 'SELL' ? 'bg-[#6A313C] text-[#E8EEF2]' : 'text-[#8FA0AF]'">매도</button>
+      </div>
+      <span class="text-[11px] text-[#8FA0AF] flex-shrink-0 ml-1">총 {{ filteredTrades.length }}건</span>
+    </div>
+
+    <div v-if="filteredTrades.length === 0" class="text-center py-12 text-[#8FA0AF] text-xs bg-[#1A242D]/40 rounded-2xl border border-dashed border-[#263541]">
+      거래 내역이 없습니다.
+    </div>
+
+    <!-- 매매 거래 카드 목록 -->
+    <div v-for="tx in filteredTrades" :key="tx.id" class="bg-[#1A242D] border border-[#263541] rounded-2xl p-3.5 shadow-md">
+      <div class="flex justify-between items-start mb-1.5">
+        <div>
+          <div class="flex items-center gap-1.5">
+            <span v-if="tx.trade_type === 'REINVEST'" class="bg-[#00D2B4]/15 text-[#00D2B4] border border-[#00D2B4]/30 text-[10px] px-1.5 py-0.5 rounded font-black flex items-center gap-1">
+              <i class="fa-solid fa-rotate text-[9px]"></i> 배당 재매수
+            </span>
+            <span v-else-if="tx.trade_type === 'BUY'" class="bg-blue-500/15 text-blue-400 border border-blue-500/30 text-[10px] px-1.5 py-0.5 rounded font-black flex items-center gap-1">
+              <i class="fa-solid fa-wallet text-[9px]"></i> 현금 매수
+            </span>
+            <span v-else class="bg-[#6A313C]/40 text-[#E8A3B0] border border-[#6A313C] text-[10px] px-1.5 py-0.5 rounded font-black flex items-center gap-1">
+              <i class="fa-solid fa-arrow-trend-down text-[9px]"></i> 매도
+            </span>
+            <h4 class="text-xs font-black text-[#E8EEF2]">{{ tx.name || getStockName(tx.ticker) }}</h4>
+          </div>
+          <span class="text-[10px] text-[#8FA0AF] block mt-0.5">{{ tx.ticker }} · {{ tx.trade_date }}</span>
+        </div>
+
+        <!-- [요청 반영] 매매 원장 수정 및 삭제 액션 버튼 그룹 -->
+        <div class="flex items-center gap-1">
+          <button @click="openEditTrade(tx)" class="text-[#8FA0AF] hover:text-[#00D2B4] p-1.5 active:scale-90 transition-all text-xs" title="매매 기록 수정">
+            <i class="fa-solid fa-pen"></i>
+          </button>
+          <button @click="deleteTransaction(tx.id)" class="text-[#8FA0AF] hover:text-[#E8A3B0] p-1.5 active:scale-90 transition-all text-xs" title="삭제">
+            <i class="fa-solid fa-trash-can"></i>
+          </button>
+        </div>
+      </div>
+
+      <div class="flex justify-between items-center bg-[#121A21] p-2 rounded-xl text-[11px] border border-[#22303C] mt-2">
+        <span class="text-[#8FA0AF]">{{ tx.shares }}주 @ {{ isUsTicker(tx.ticker) ? '$' : '₩' }}{{ formatNum(tx.price) }}</span>
+        <div class="text-right">
+          <span class="font-extrabold text-[#E8EEF2] block">{{ isUsTicker(tx.ticker) ? '$' : '₩' }}{{ formatNum(tx.shares * tx.price) }}</span>
+          <span v-if="tx.trade_type === 'REINVEST'" class="text-[9px] text-[#00D2B4] font-semibold">배당 예수금 사용</span>
+          <span v-else-if="tx.trade_type === 'BUY'" class="text-[9px] text-blue-400 font-semibold">내 원금 투입</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════════ -->
+  <!-- 탭 4: 월별 배당 캘린더 (12개월 가로 그래프 6개월x2줄 & 배당률 표기) -->
+  <!-- ════════════════════════════════════════════════════════════════ -->
+  <div v-if="currentTab === 'calendar'" class="space-y-4">
+    <!-- 월 목표 대비 달성률 카드 -->
+    <div class="bg-[#1A242D] border border-[#263541] rounded-2xl p-4">
+      <div class="flex justify-between items-center mb-2">
+        <span class="text-xs font-bold text-[#8FA0AF] flex items-center gap-1.5">
+          <i class="fa-solid fa-bullseye text-[#00D2B4]"></i> 이번 달 분배금 달성률
+        </span>
+        <span class="text-xs font-black text-[#00D2B4]">₩{{ formatNum(thisMonthDividend) }} / ₩{{ formatNum(monthlyGoal) }}</span>
+      </div>
+      <div class="w-full h-3 bg-[#121A21] rounded-full overflow-hidden border border-[#22303C] p-0.5">
+        <div class="h-full bg-gradient-to-r from-teal-500 to-[#00D2B4] rounded-full transition-all duration-500"
+             :style="{ width: Math.min(100, (thisMonthDividend / (monthlyGoal || 1)) * 100) + '%' }"></div>
+      </div>
+      <div class="flex justify-between items-center mt-2 text-[10px] text-[#8FA0AF]">
+        <span>달성률: <b class="text-[#E8EEF2]">{{ ((thisMonthDividend / (monthlyGoal || 1)) * 100).toFixed(1) }}%</b></span>
+        <button @click="changeMonthlyGoal" class="underline text-[#8FA0AF] hover:text-[#00D2B4]">목표금액 변경</button>
+      </div>
+    </div>
+
+    <!-- 12개월 월별 분배금 수령 추이 (6개월씩 세로 2줄 가로형 차트) -->
+    <div class="bg-[#1A242D] border border-[#263541] rounded-2xl p-4">
+      <div class="flex justify-between items-center mb-3">
+        <h3 class="text-xs font-bold text-[#E8EEF2] flex items-center gap-1.5">
+          <i class="fa-solid fa-chart-simple text-[#00D2B4]"></i> 12개월 분배금 수령 추이
+        </h3>
+        <!-- 연도 선택기 -->
+        <div class="flex items-center gap-2 bg-[#121A21] px-2.5 py-1 rounded-xl border border-[#22303C] text-xs">
+          <button @click="calendarYear--" class="text-[#8FA0AF] hover:text-[#00D2B4] font-bold">◀</button>
+          <span class="font-black text-[#E8EEF2] text-[11px]">{{ calendarYear }}년</span>
+          <button @click="calendarYear++" class="text-[#8FA0AF] hover:text-[#00D2B4] font-bold">▶</button>
+        </div>
+      </div>
+
+      <!-- 연간 수령 합계 요약 -->
+      <div class="flex justify-between items-center bg-[#121A21] p-2.5 rounded-xl border border-[#22303C] mb-3 text-xs">
+        <span class="text-[#8FA0AF]">{{ calendarYear }}년 연간 누적 분배금:</span>
+        <b class="text-[#00D2B4] text-sm">₩ {{ formatNum(calendarYearTotal) }}</b>
+      </div>
+
+      <div class="space-y-4">
+        <!-- 상단 줄: 1월 ~ 6월 (상반기 6개월) -->
+        <div>
+          <div class="flex justify-between items-center text-[10px] text-[#8FA0AF] font-bold mb-1 px-1">
+            <span>상반기 (1월 ~ 6월)</span>
+            <span class="text-[#00D2B4]">₩{{ formatNum(halfYear1Total) }}</span>
+          </div>
+          <div class="grid grid-cols-6 gap-1.5 bg-[#121A21] p-2 rounded-xl border border-[#22303C]">
+            <div v-for="m in months1to6" :key="m.month" class="flex flex-col items-center justify-end h-28">
+              <!-- 수령 금액 -->
+              <span class="text-[9px] font-bold mb-1" :class="m.amount > 0 ? 'text-[#00D2B4]' : 'text-[#8FA0AF]/50'">
+                {{ m.amount > 0 ? formatNumShort(m.amount) : '-' }}
+              </span>
+              <!-- 막대 차트 바 -->
+              <div class="w-full bg-[#1A242D] rounded-t-md h-16 flex items-end justify-center overflow-hidden border border-[#263541]">
+                <div class="w-full rounded-t-md transition-all duration-500"
+                     :class="m.isCurrent ? 'bg-gradient-to-t from-teal-600 to-[#00D2B4]' : (m.amount > 0 ? 'bg-[#00D2B4]' : 'bg-transparent')"
+                     :style="{ height: (m.pct || 4) + '%' }"></div>
+              </div>
+              <!-- 월 라벨 -->
+              <span class="text-[10px] mt-1 font-semibold" 
+                    :class="m.isCurrent ? 'text-[#00D2B4] font-black underline' : (m.amount > 0 ? 'text-[#E8EEF2]' : 'text-[#8FA0AF]')">
+                {{ m.name }}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 하단 줄: 7월 ~ 12월 (하반기 6개월) -->
+        <div>
+          <div class="flex justify-between items-center text-[10px] text-[#8FA0AF] font-bold mb-1 px-1">
+            <span>하반기 (7월 ~ 12월)</span>
+            <span class="text-[#00D2B4]">₩{{ formatNum(halfYear2Total) }}</span>
+          </div>
+          <div class="grid grid-cols-6 gap-1.5 bg-[#121A21] p-2 rounded-xl border border-[#22303C]">
+            <div v-for="m in months7to12" :key="m.month" class="flex flex-col items-center justify-end h-28">
+              <!-- 수령 금액 -->
+              <span class="text-[9px] font-bold mb-1" :class="m.amount > 0 ? 'text-[#00D2B4]' : 'text-[#8FA0AF]/50'">
+                {{ m.amount > 0 ? formatNumShort(m.amount) : '-' }}
+              </span>
+              <!-- 막대 차트 바 -->
+              <div class="w-full bg-[#1A242D] rounded-t-md h-16 flex items-end justify-center overflow-hidden border border-[#263541]">
+                <div class="w-full rounded-t-md transition-all duration-500"
+                     :class="m.isCurrent ? 'bg-gradient-to-t from-teal-600 to-[#00D2B4]' : (m.amount > 0 ? 'bg-[#00D2B4]' : 'bg-transparent')"
+                     :style="{ height: (m.pct || 4) + '%' }"></div>
+              </div>
+              <!-- 월 라벨 -->
+              <span class="text-[10px] mt-1 font-semibold" 
+                    :class="m.isCurrent ? 'text-[#00D2B4] font-black underline' : (m.amount > 0 ? 'text-[#E8EEF2]' : 'text-[#8FA0AF]')">
+                {{ m.name }}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 배당 수령 일정 타임라인 & 배당률 표기 -->
+    <div class="bg-[#1A242D] border border-[#263541] rounded-2xl p-4">
+      <h3 class="text-xs font-bold text-[#E8EEF2] mb-3 flex items-center gap-1.5">
+        <i class="fa-solid fa-calendar-days text-[#00D2B4]"></i> 배당 수령 상세 기록 (분배기준일·배당률)
+      </h3>
+
+      <div v-if="dividends.length === 0" class="text-center py-6 text-[#8FA0AF] text-xs">
+        기록된 배당 내역이 없습니다.
+      </div>
+
+      <div v-else class="space-y-2.5">
+        <div v-for="d in enrichedDividends.slice(0, 20)" :key="d.id" class="p-3 bg-[#121A21] border border-[#22303C] rounded-xl text-xs space-y-1.5">
+          <div class="flex justify-between items-start">
+            <div>
+              <div class="flex items-center gap-1.5">
+                <span class="font-bold text-[#E8EEF2]">{{ getStockName(d.ticker) }}</span>
+                <span class="text-[10px] text-[#8FA0AF]">({{ d.ticker }})</span>
+              </div>
+              <div class="flex items-center gap-2 mt-0.5 text-[10px] text-[#8FA0AF]">
+                <span>지급: {{ d.pay_date }}</span>
+                <span class="text-[#00D2B4]">기준일: <b>{{ d.recordDate }}</b></span>
+              </div>
+            </div>
+            <div class="text-right flex items-center gap-1.5">
+              <div>
+                <div class="font-black text-[#00D2B4] text-sm">₩{{ formatNum(d.total_received) }}</div>
+                <span class="text-[9px] px-1.5 py-0.5 rounded font-bold"
+                      :class="d.status === 'WITHDRAW' ? 'bg-slate-800 text-slate-400' : 'bg-[#00D2B4]/15 text-[#00D2B4]'">
+                  {{ d.status === 'WITHDRAW' ? '외부인출됨' : '예수금보관' }}
+                </span>
+              </div>
+              <button @click="openEditDividend(d)" class="text-[#8FA0AF] hover:text-[#00D2B4] p-1 text-xs" title="수정">
+                <i class="fa-solid fa-pen"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- 배당률 표기 바 (주당 배당금 & 기준일/실질 배당률) -->
+          <div class="pt-1.5 border-t border-[#22303C] flex justify-between items-center text-[10px]">
+            <span class="text-[#8FA0AF]">
+              주당: <b class="text-[#E8EEF2]">{{ d.isUS ? '$' + d.dps : '₩' + formatNum(d.dps) }}</b>
+            </span>
+            <div class="flex gap-2">
+              <span class="text-[#8FA0AF]">
+                기준일분배율: <b class="text-[#00D2B4]">월 {{ d.marketYieldMonth }}%</b> (연 {{ d.marketYieldAnnual }}%)
+              </span>
+              <span class="text-[#8FA0AF]">
+                실질: <b class="text-[#E8EEF2]">연 {{ d.realYieldAnnual }}%</b>
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════════ -->
+  <!-- 탭 5: 배당금 재투자 가이드 (추천 금액대 및 최적 매수 플랜) -->
+  <!-- ════════════════════════════════════════════════════════════════ -->
+  <div v-if="currentTab === 'reinvestGuide'" class="space-y-4">
+    <!-- 예수금 현황 안내 카드 -->
+    <div class="bg-[#1A242D] border border-[#263541] rounded-2xl p-4">
+      <div class="flex justify-between items-center mb-1">
+        <span class="text-xs font-bold text-[#8FA0AF]">현재 보유 분배금 예수금</span>
+        <span class="text-[11px] text-[#00D2B4] font-semibold">재매수 가능 잔액</span>
+      </div>
+      <div class="text-2xl font-black text-[#00D2B4] tracking-tight mb-2">
+        ₩ {{ formatNum(divSummary.remainingCash) }}
+      </div>
+      <p class="text-[11px] text-[#8FA0AF]">
+        받아둔 분배금을 잠재우지 않고 즉시 재매수하여 복리 스노우볼을 굴려보세요! 아래에서 각 종목별 최적의 매수 추천 금액대와 수량을 안내해 드립니다.
+      </p>
+    </div>
+
+    <!-- 보유 종목별 1주당 단가 & 즉시 매수 가능 분석 카드 목록 -->
+    <div class="space-y-2.5">
+      <h3 class="text-xs font-bold text-[#E8EEF2] flex items-center gap-1.5 px-1">
+        <i class="fa-solid fa-calculator text-[#00D2B4]"></i> 종목별 최적 재매입 가능 수량
+      </h3>
+
+      <div v-if="holdings.length === 0" class="text-center py-8 text-[#8FA0AF] text-xs bg-[#1A242D]/40 rounded-2xl border border-dashed border-[#263541]">
+        보유 종목이 등록되지 않았습니다.
+      </div>
+
+      <div v-for="h in holdings" :key="h.ticker" class="bg-[#1A242D] border border-[#263541] rounded-2xl p-3.5 space-y-2.5">
+        <div class="flex justify-between items-start">
+          <div>
+            <div class="flex items-center gap-1.5">
+              <span class="text-[10px] px-1 py-0.2 rounded bg-[#121A21] text-[#8FA0AF] border border-[#22303C] font-mono">{{ h.market }}</span>
+              <b class="text-xs text-[#E8EEF2]">{{ h.name }}</b>
+            </div>
+            <span class="text-[10px] text-[#8FA0AF] mt-0.5 block">
+              현재가: <b>{{ h.market === 'US' ? '$' + h.closePrice : '₩' + formatNum(h.closePrice) }}</b> · 현재 {{ h.shares }}주 보유
+            </span>
+          </div>
+
+          <!-- 풀 매수 가능 수량 배지 -->
+          <div class="text-right">
+            <span class="text-xs font-black text-[#00D2B4]">
+              최대 {{ calcMaxSharesFor(h) }}주 가능
+            </span>
+            <span class="text-[10px] text-[#8FA0AF] block">
+              (필요 ₩{{ formatNum(calcMaxCostFor(h)) }})
+            </span>
+          </div>
+        </div>
+
+        <!-- 추천 구매 단위 가이드 버튼들 (1주 / 5주 / 10주 / 최대) -->
+        <div class="bg-[#121A21] p-2 rounded-xl border border-[#22303C] space-y-1.5 text-xs">
+          <span class="text-[10px] text-[#8FA0AF] block">추천 구매 단위별 필요 금액:</span>
+          <div class="grid grid-cols-4 gap-1">
+            <button @click="quickReinvest(h, 1)" :disabled="calcUnitCost(h, 1) > divSummary.remainingCash"
+                    class="p-1.5 rounded-lg border text-center transition-all disabled:opacity-30"
+                    :class="calcUnitCost(h, 1) <= divSummary.remainingCash ? 'bg-[#1A242D] border-[#263541] hover:border-[#00D2B4] text-[#E8EEF2]' : 'bg-[#121A21] border-transparent text-[#8FA0AF]'">
+              <div class="font-bold text-[11px]">+1주</div>
+              <div class="text-[9px] text-[#8FA0AF]">₩{{ formatNumShort(calcUnitCost(h, 1)) }}</div>
+            </button>
+
+            <button @click="quickReinvest(h, 5)" :disabled="calcUnitCost(h, 5) > divSummary.remainingCash"
+                    class="p-1.5 rounded-lg border text-center transition-all disabled:opacity-30"
+                    :class="calcUnitCost(h, 5) <= divSummary.remainingCash ? 'bg-[#1A242D] border-[#263541] hover:border-[#00D2B4] text-[#E8EEF2]' : 'bg-[#121A21] border-transparent text-[#8FA0AF]'">
+              <div class="font-bold text-[11px]">+5주</div>
+              <div class="text-[9px] text-[#8FA0AF]">₩{{ formatNumShort(calcUnitCost(h, 5)) }}</div>
+            </button>
+
+            <button @click="quickReinvest(h, 10)" :disabled="calcUnitCost(h, 10) > divSummary.remainingCash"
+                    class="p-1.5 rounded-lg border text-center transition-all disabled:opacity-30"
+                    :class="calcUnitCost(h, 10) <= divSummary.remainingCash ? 'bg-[#1A242D] border-[#263541] hover:border-[#00D2B4] text-[#E8EEF2]' : 'bg-[#121A21] border-transparent text-[#8FA0AF]'">
+              <div class="font-bold text-[11px]">+10주</div>
+              <div class="text-[9px] text-[#8FA0AF]">₩{{ formatNumShort(calcUnitCost(h, 10)) }}</div>
+            </button>
+
+            <button @click="quickReinvest(h, calcMaxSharesFor(h))" :disabled="calcMaxSharesFor(h) <= 0"
+                    class="p-1.5 rounded-lg border border-[#00D2B4]/40 bg-[#00D2B4]/15 hover:bg-[#00D2B4]/25 text-[#00D2B4] text-center transition-all disabled:opacity-30">
+              <div class="font-black text-[11px]">최대 풀매수</div>
+              <div class="text-[9px] text-[#00D2B4] font-semibold">{{ calcMaxSharesFor(h) }}주</div>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 스마트 재매수 전략 추천 가이드 카드 -->
+    <div class="bg-[#1A242D] border border-[#263541] rounded-2xl p-4 space-y-3">
+      <h3 class="text-xs font-bold text-[#E8EEF2] flex items-center gap-1.5">
+        <i class="fa-solid fa-lightbulb text-[#00D2B4]"></i> 커버드콜 복리 재투자 추천 전략
+      </h3>
+
+      <div class="space-y-2 text-xs">
+        <div class="bg-[#121A21] p-3 rounded-xl border border-[#22303C]">
+          <b class="text-[#00D2B4] block mb-1">1. 평단가 인하 (물타기) 집중 전략</b>
+          <p class="text-[11px] text-[#8FA0AF]">
+            순수 주가 수익률이 마이너스이거나 평단가보다 현재가가 낮은 종목에 배당금을 투입하면 실질 평단가를 가장 빠르게 낮출 수 있습니다.
+          </p>
+        </div>
+
+        <div class="bg-[#121A21] p-3 rounded-xl border border-[#22303C]">
+          <b class="text-[#00D2B4] block mb-1">2. 균등 분할 복리 스노우볼 전략</b>
+          <p class="text-[11px] text-[#8FA0AF]">
+            모인 분배금(₩{{ formatNum(divSummary.remainingCash) }})을 보유 종목 수({{ holdings.length || 1 }}개)로 나누어 약 <b>₩{{ formatNum(Math.round(divSummary.remainingCash / (holdings.length || 1))) }}</b>씩 고르게 매수하면 포트폴리오 밸런스가 유지됩니다.
+          </p>
+        </div>
+
+        <div class="bg-[#121A21] p-3 rounded-xl border border-[#22303C]">
+          <b class="text-[#00D2B4] block mb-1">3. 라운드 넘버(10주 단위) 달성 전략</b>
+          <p class="text-[11px] text-[#8FA0AF]">
+            보유 수량을 10주, 50주, 100주 등 딱 떨어지는 라운드 숫자로 채워나가면 다음 달 수령하는 분배금 계산이 훨씬 명확하고 심리적 만족감이 극대화됩니다.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════════ -->
+  <!-- 탭 6: 복리 재투자 & 은퇴 목표 계산기 (Simulator) -->
   <!-- ════════════════════════════════════════════════════════════════ -->
   <div v-if="currentTab === 'simulator'" class="space-y-4">
     <!-- A. 월 배당 목표 달성 계산기 -->
-    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
-      <h3 class="text-xs font-black text-white mb-3 flex items-center gap-1.5">
-        <i class="fa-solid fa-bullseye text-red-400"></i> 은퇴 & 월 배당 목표 달성 계산기
+    <div class="bg-[#1A242D] border border-[#263541] rounded-2xl p-4">
+      <h3 class="text-xs font-black text-[#E8EEF2] mb-3 flex items-center gap-1.5">
+        <i class="fa-solid fa-bullseye text-[#00D2B4]"></i> 은퇴 & 월 배당 목표 달성 계산기
       </h3>
 
       <div class="space-y-3 text-xs">
         <div>
-          <label class="block text-slate-400 mb-1">희망 월 배당금(원)</label>
+          <label class="block text-[#8FA0AF] mb-1">희망 월 배당금(원)</label>
           <div class="relative">
-            <input v-model.number="calcTargetMonthly" type="number" step="100000" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm font-bold text-amber-300">
-            <span class="absolute right-3 top-3.5 text-xs text-slate-400">원/월</span>
+            <input v-model.number="calcTargetMonthly" type="number" step="100000" class="w-full bg-[#121A21] border border-[#22303C] rounded-xl p-3 text-sm font-bold text-[#00D2B4]">
+            <span class="absolute right-3 top-3.5 text-xs text-[#8FA0AF]">원/월</span>
           </div>
-          <!-- 빠른 선택 버튼 -->
           <div class="flex gap-1.5 mt-1.5">
-            <button @click="calcTargetMonthly = 500000" class="px-2 py-1 rounded bg-slate-800 text-[10px]">50만원</button>
-            <button @click="calcTargetMonthly = 1000000" class="px-2 py-1 rounded bg-slate-800 text-[10px]">100만원</button>
-            <button @click="calcTargetMonthly = 2000000" class="px-2 py-1 rounded bg-slate-800 text-[10px]">200만원</button>
-            <button @click="calcTargetMonthly = 3000000" class="px-2 py-1 rounded bg-slate-800 text-[10px]">300만원</button>
+            <button @click="calcTargetMonthly = 500000" class="px-2 py-1 rounded bg-[#222E39] text-[10px] text-[#E8EEF2]">50만원</button>
+            <button @click="calcTargetMonthly = 1000000" class="px-2 py-1 rounded bg-[#222E39] text-[10px] text-[#E8EEF2]">100만원</button>
+            <button @click="calcTargetMonthly = 2000000" class="px-2 py-1 rounded bg-[#222E39] text-[10px] text-[#E8EEF2]">200만원</button>
+            <button @click="calcTargetMonthly = 3000000" class="px-2 py-1 rounded bg-[#222E39] text-[10px] text-[#E8EEF2]">300만원</button>
           </div>
         </div>
 
         <div>
-          <label class="block text-slate-400 mb-1">적용 연 배당률 (현재 포트폴리오 기준)</label>
+          <label class="block text-[#8FA0AF] mb-1">적용 연 배당률 (현재 포트폴리오 기준)</label>
           <div class="relative">
-            <input v-model.number="calcAnnualYield" type="number" step="0.5" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm font-bold text-emerald-400">
-            <span class="absolute right-3 top-3.5 text-xs text-slate-400">% / 연</span>
+            <input v-model.number="calcAnnualYield" type="number" step="0.5" class="w-full bg-[#121A21] border border-[#22303C] rounded-xl p-3 text-sm font-bold text-[#00D2B4]">
+            <span class="absolute right-3 top-3.5 text-xs text-[#8FA0AF]">% / 연</span>
           </div>
         </div>
 
         <!-- 계산 결과 표시 박스 -->
-        <div class="bg-slate-950/80 border border-slate-800 rounded-xl p-3 mt-3 space-y-2 text-xs">
+        <div class="bg-[#121A21] border border-[#22303C] rounded-xl p-3 mt-3 space-y-2 text-xs">
           <div class="flex justify-between">
-            <span class="text-slate-400">목표 달성 필요 총자산:</span>
-            <b class="text-white">₩ {{ formatNum(requiredTotalAsset) }}</b>
+            <span class="text-[#8FA0AF]">목표 달성 필요 총자산:</span>
+            <b class="text-[#E8EEF2]">₩ {{ formatNum(requiredTotalAsset) }}</b>
           </div>
           <div class="flex justify-between">
-            <span class="text-slate-400">현재 총 투자 원금:</span>
-            <b class="text-slate-300">₩ {{ formatNum(totalInvested) }}</b>
+            <span class="text-[#8FA0AF]">현재 총 순수 원금:</span>
+            <b class="text-[#8FA0AF]">₩ {{ formatNum(totalInvested) }}</b>
           </div>
-          <div class="flex justify-between pt-2 border-t border-slate-800/80 font-bold">
-            <span class="text-emerald-400">앞으로 추가 모아야 할 원금:</span>
-            <b class="text-emerald-300 text-sm">₩ {{ formatNum(additionalNeeded) }}</b>
+          <div class="flex justify-between pt-2 border-t border-[#22303C] font-bold">
+            <span class="text-[#00D2B4]">앞으로 추가 모아야 할 원금:</span>
+            <b class="text-[#00D2B4] text-sm">₩ {{ formatNum(additionalNeeded) }}</b>
           </div>
         </div>
       </div>
     </div>
 
     <!-- B. 복리 재투자 시뮬레이터 (스노우볼) -->
-    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
-      <h3 class="text-xs font-black text-white mb-2 flex items-center gap-1.5">
-        <i class="fa-solid fa-snowflake text-cyan-400"></i> 배당 100% 복리 재투자 시뮬레이션
+    <div class="bg-[#1A242D] border border-[#263541] rounded-2xl p-4">
+      <h3 class="text-xs font-black text-[#E8EEF2] mb-2 flex items-center gap-1.5">
+        <i class="fa-solid fa-snowflake text-[#00D2B4]"></i> 배당 100% 복리 재투자 시뮬레이션
       </h3>
-      <p class="text-[11px] text-slate-400 mb-3">현재 원금(₩{{ formatNum(totalInvested) }})과 연 {{ calcAnnualYield }}% 배당률을 전액 재투자할 때:</p>
+      <p class="text-[11px] text-[#8FA0AF] mb-3">현재 원금(₩{{ formatNum(totalInvested) }})과 연 {{ calcAnnualYield }}% 배당률을 전액 재투자할 때:</p>
 
       <div class="space-y-2 text-xs">
-        <div v-for="sim in simulationResults" :key="sim.year" class="p-2.5 bg-slate-950/60 rounded-xl border border-slate-800 flex justify-between items-center">
+        <div v-for="sim in simulationResults" :key="sim.year" class="p-2.5 bg-[#121A21] rounded-xl border border-[#22303C] flex justify-between items-center">
           <div>
-            <span class="font-bold text-emerald-400 block">{{ sim.year }}년 뒤</span>
-            <span class="text-[10px] text-slate-400">총 자산: ₩{{ formatNum(sim.asset) }}</span>
+            <span class="font-bold text-[#00D2B4] block">{{ sim.year }}년 뒤</span>
+            <span class="text-[10px] text-[#8FA0AF]">총 자산: ₩{{ formatNum(sim.asset) }}</span>
           </div>
           <div class="text-right">
-            <span class="text-[10px] text-slate-400 block">예상 월 배당금</span>
-            <b class="text-amber-300 font-bold">₩ {{ formatNum(sim.monthlyDiv) }} / 월</b>
+            <span class="text-[10px] text-[#8FA0AF] block">예상 월 배당금</span>
+            <b class="text-[#00D2B4] font-bold">₩ {{ formatNum(sim.monthlyDiv) }} / 월</b>
           </div>
         </div>
       </div>
@@ -465,155 +876,235 @@
   <!-- 5. 하단 고정 등록 버튼 -->
   <!-- ════════════════════════════════════════════════════════════════ -->
   <div class="fixed bottom-5 left-0 right-0 max-w-md mx-auto px-4 z-40">
-    <button type="button" @click="openModal" class="w-full bg-emerald-500 active:bg-emerald-600 text-slate-950 font-black py-3.5 rounded-2xl shadow-2xl flex items-center justify-center gap-2 text-sm active:scale-98 transition-all">
-      <i class="fa-solid fa-circle-plus text-base"></i> 거래 / 분배금 입력하기
+    <button type="button" @click="openNewModal" class="w-full bg-[#00D2B4] hover:bg-[#00BC9F] active:scale-98 text-[#0F171E] font-black py-3.5 rounded-2xl shadow-xl shadow-[#00D2B4]/20 flex items-center justify-center gap-2 text-sm transition-all">
+      <i class="fa-solid fa-plus text-base"></i> 거래 / 분배금 입력하기
     </button>
   </div>
 
   <!-- ════════════════════════════════════════════════════════════════ -->
-  <!-- 6. 모바일 최적화 입력 모달 (티커 자동완성 포함) -->
+  <!-- 6. 모바일 최적화 입력 및 수정 모달 -->
   <!-- ════════════════════════════════════════════════════════════════ -->
   <div v-if="showModal" class="fixed inset-0 bg-black/85 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-4">
-    <div class="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-md p-5 text-white max-h-[92vh] overflow-y-auto">
+    <div class="bg-[#1A242D] border border-[#263541] rounded-3xl w-full max-w-md p-5 text-[#E8EEF2] max-h-[92vh] overflow-y-auto">
       
       <div class="flex justify-between items-center mb-3">
         <h3 class="text-base font-bold flex items-center gap-2">
-          <i class="fa-solid fa-pen-to-square text-emerald-400"></i> 새 내역 등록
+          <i :class="isEditMode ? 'fa-solid fa-pen' : 'fa-solid fa-pen-to-square'" class="text-[#00D2B4]"></i>
+          <span>{{ isEditMode ? (formType === 'TRADE' ? '매매 기록 수정' : '분배금 내역 수정') : '새 내역 등록' }}</span>
         </h3>
-        <button type="button" @click="showModal = false" class="text-slate-400 hover:text-white text-xl p-1">
+        <button type="button" @click="showModal = false" class="text-[#8FA0AF] hover:text-white text-xl p-1">
           <i class="fa-solid fa-xmark"></i>
         </button>
       </div>
 
       <!-- 모달 내부 에러 배너 -->
-      <div v-if="modalError" class="mb-3 p-2.5 bg-red-950 border border-red-800 text-red-300 rounded-xl text-xs font-semibold">
-        🚨 {{ modalError }}
+      <div v-if="modalError" class="mb-3 p-2.5 bg-[#6A313C]/40 border border-[#6A313C] text-[#E8A3B0] rounded-xl text-xs font-semibold flex items-center gap-2">
+        <i class="fa-solid fa-circle-exclamation text-[#E8A3B0]"></i>
+        <span>{{ modalError }}</span>
       </div>
 
-      <!-- 모달 상단 탭 (거래 vs 분배금) -->
-      <div class="flex bg-slate-950 rounded-xl p-1 mb-4 text-xs font-bold">
+      <!-- 모달 상단 탭 (신규 등록 시에만 탭 전환 활성화) -->
+      <div v-if="!isEditMode" class="flex bg-[#121A21] rounded-xl p-1 mb-4 text-xs font-bold border border-[#22303C]">
         <button type="button" @click="formType = 'TRADE'" class="flex-1 py-2 rounded-lg transition-all" 
-                :class="formType === 'TRADE' ? 'bg-slate-800 text-white shadow' : 'text-slate-400'">매수 / 매도</button>
+                :class="formType === 'TRADE' ? 'bg-[#1A242D] text-[#E8EEF2] shadow' : 'text-[#8FA0AF]'">주식 매수 / 매도</button>
         <button type="button" @click="formType = 'DIVIDEND'" class="flex-1 py-2 rounded-lg transition-all" 
-                :class="formType === 'DIVIDEND' ? 'bg-slate-800 text-amber-300 shadow' : 'text-slate-400'">분배금(배당금)</button>
+                :class="formType === 'DIVIDEND' ? 'bg-[#1A242D] text-[#00D2B4] shadow' : 'text-[#8FA0AF]'">분배금(배당금) 수령</button>
       </div>
 
-      <!-- [A] 매수 / 매도 거래 입력 폼 -->
+      <!-- [A] 매수 / 매도 거래 입력 및 수정 폼 -->
       <div v-if="formType === 'TRADE'" class="space-y-3 text-xs">
+        
+        <!-- 자금 출처 / 거래 종류 3단 선택 -->
         <div>
-          <label class="block text-slate-400 mb-1">거래 구분</label>
-          <select v-model="tradeForm.trade_type" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-white">
-            <option value="BUY">매수 / 추가매수 (평단가 자동 갱신)</option>
-            <option value="SELL">매도 (실현손익 분리 기록)</option>
-          </select>
+          <label class="block text-[#8FA0AF] mb-1.5 font-bold">거래 종류 (자금 출처)</label>
+          <div class="grid grid-cols-3 gap-1.5 bg-[#121A21] p-1.5 rounded-xl border border-[#22303C]">
+            <button type="button" @click="tradeForm.trade_type = 'BUY'" 
+                    class="py-2 px-1 rounded-lg text-xs font-bold transition-all text-center flex flex-col items-center justify-center gap-0.5"
+                    :class="tradeForm.trade_type === 'BUY' ? 'bg-blue-600 text-white shadow' : 'text-[#8FA0AF] hover:text-[#E8EEF2]'">
+              <span class="flex items-center gap-1"><i class="fa-solid fa-wallet text-[10px]"></i> 현금 매수</span>
+              <span class="text-[9px] font-normal opacity-80">내 원금 투입</span>
+            </button>
+            <button type="button" @click="tradeForm.trade_type = 'REINVEST'" 
+                    class="py-2 px-1 rounded-lg text-xs font-bold transition-all text-center flex flex-col items-center justify-center gap-0.5"
+                    :class="tradeForm.trade_type === 'REINVEST' ? 'bg-[#00D2B4] text-[#0F171E] shadow' : 'text-[#8FA0AF] hover:text-[#E8EEF2]'">
+              <span class="flex items-center gap-1"><i class="fa-solid fa-rotate text-[10px]"></i> 배당 재매수</span>
+              <span class="text-[9px] font-normal opacity-90">예수금 사용</span>
+            </button>
+            <button type="button" @click="tradeForm.trade_type = 'SELL'" 
+                    class="py-2 px-1 rounded-lg text-xs font-bold transition-all text-center flex flex-col items-center justify-center gap-0.5"
+                    :class="tradeForm.trade_type === 'SELL' ? 'bg-[#6A313C] text-[#E8EEF2] shadow' : 'text-[#8FA0AF] hover:text-[#E8EEF2]'">
+              <span class="flex items-center gap-1"><i class="fa-solid fa-arrow-trend-down text-[10px]"></i> 주식 매도</span>
+              <span class="text-[9px] font-normal opacity-80">보유주식 처분</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 배당 재매수 선택 시: 사용 가능 예수금 현황 안내 상자 -->
+        <div v-if="tradeForm.trade_type === 'REINVEST'" class="bg-[#00D2B4]/10 border border-[#00D2B4]/30 rounded-xl p-3 text-xs space-y-1">
+          <div class="flex justify-between items-center">
+            <span class="text-[#00D2B4] font-bold flex items-center gap-1">
+              <i class="fa-solid fa-wallet"></i> 현재 사용 가능 분배금 예수금:
+            </span>
+            <b class="text-[#E8EEF2] text-sm">₩ {{ formatNum(divSummary.remainingCash) }}</b>
+          </div>
+          <p class="text-[10px] text-[#8FA0AF]">
+            배당받아 모아둔 예수금으로 주식을 사면, 총 투자원금(내 돈)은 늘어나지 않고 <b>배당 재투자 수량</b>으로 자동 집계됩니다!
+          </p>
         </div>
 
         <!-- 티커 입력 & 자동완성 안내 드롭다운 -->
         <div class="relative">
-          <label class="block text-slate-400 mb-1">티커 / 종목코드 <span class="text-red-400">*</span></label>
+          <label class="block text-[#8FA0AF] mb-1">티커 / 종목코드 <span class="text-[#E8A3B0]">*</span></label>
           <div class="flex gap-2">
-            <input v-model="tradeForm.ticker" @input="onTickerInput('trade')" placeholder="예: 441680 또는 JEPQ" 
-                   class="flex-1 bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm uppercase text-white font-mono">
-            <button type="button" @click="fetchOfficialName('trade')" class="px-3 bg-slate-800 hover:bg-slate-700 rounded-xl text-xs border border-slate-700 text-emerald-400">
+            <input v-model="tradeForm.ticker" @input="onTickerInput('trade')" placeholder="예: 0219E0 또는 JEPQ" 
+                   class="flex-1 bg-[#121A21] border border-[#22303C] rounded-xl p-3 text-sm uppercase text-[#E8EEF2] font-mono">
+            <button type="button" @click="fetchOfficialName('trade')" class="px-3 bg-[#222E39] hover:bg-[#2C3B49] rounded-xl text-xs border border-[#263541] text-[#00D2B4]">
               조회
             </button>
           </div>
 
           <!-- 자동 완성 추천 드롭다운 -->
           <div v-if="tickerSuggestions.length > 0 && activeSuggestionForm === 'trade'" 
-               class="absolute left-0 right-0 top-full mt-1 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-50 max-h-48 overflow-y-auto">
+               class="absolute left-0 right-0 top-full mt-1 bg-[#1A242D] border border-[#263541] rounded-xl shadow-2xl z-50 max-h-48 overflow-y-auto">
             <div v-for="s in tickerSuggestions" :key="s.ticker" @click="selectSuggestion('trade', s)" 
-                 class="p-2.5 hover:bg-slate-700 cursor-pointer border-b border-slate-750 flex justify-between items-center text-xs">
+                 class="p-2.5 hover:bg-[#222E39] cursor-pointer border-b border-[#22303C] flex justify-between items-center text-xs">
               <div>
-                <b class="text-white">{{ s.ticker }}</b> <span class="text-slate-300 ml-1.5">{{ s.name }}</span>
+                <b class="text-[#E8EEF2]">{{ s.ticker }}</b> <span class="text-[#8FA0AF] ml-1.5">{{ s.name }}</span>
               </div>
-              <span class="text-[10px] text-slate-400">{{ s.market }}</span>
+              <span class="text-[10px] text-[#8FA0AF]">{{ s.market }}</span>
             </div>
           </div>
         </div>
 
         <div>
-          <label class="block text-slate-400 mb-1">공식 종목명 (자동 완성됨)</label>
-          <input v-model="tradeForm.name" placeholder="티커 입력 시 자동 조회됩니다" class="w-full bg-slate-950/70 border border-slate-700 rounded-xl p-3 text-sm text-slate-200">
+          <label class="block text-[#8FA0AF] mb-1">공식 종목명 (자동 완성됨)</label>
+          <input v-model="tradeForm.name" placeholder="티커 입력 시 자동 조회됩니다" class="w-full bg-[#121A21]/70 border border-[#22303C] rounded-xl p-3 text-sm text-[#E8EEF2]">
         </div>
 
         <div class="grid grid-cols-2 gap-2">
           <div>
-            <label class="block text-slate-400 mb-1">수량(주) <span class="text-red-400">*</span></label>
-            <input v-model.number="tradeForm.shares" type="number" placeholder="예: 100" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-white">
+            <label class="block text-[#8FA0AF] mb-1">수량(주) <span class="text-[#E8A3B0]">*</span></label>
+            <input v-model.number="tradeForm.shares" type="number" placeholder="예: 10" class="w-full bg-[#121A21] border border-[#22303C] rounded-xl p-3 text-sm text-[#E8EEF2]">
+            
             <div class="flex gap-1 mt-1">
-              <button type="button" @click="tradeForm.shares = (Number(tradeForm.shares) || 0) + 10" class="px-2 py-0.5 rounded bg-slate-800 text-[10px]">+10</button>
-              <button type="button" @click="tradeForm.shares = (Number(tradeForm.shares) || 0) + 50" class="px-2 py-0.5 rounded bg-slate-800 text-[10px]">+50</button>
-              <button type="button" @click="tradeForm.shares = (Number(tradeForm.shares) || 0) + 100" class="px-2 py-0.5 rounded bg-slate-800 text-[10px]">+100</button>
+              <button v-if="tradeForm.trade_type === 'REINVEST' && maxAffordableShares > 0" 
+                      type="button" @click="tradeForm.shares = maxAffordableShares" 
+                      class="px-2 py-0.5 rounded bg-[#00D2B4] text-[#0F171E] font-black text-[10px]">
+                최대 {{ maxAffordableShares }}주
+              </button>
+              <button type="button" @click="tradeForm.shares = (Number(tradeForm.shares) || 0) + 10" class="px-2 py-0.5 rounded bg-[#222E39] text-[#E8EEF2] text-[10px]">+10</button>
+              <button type="button" @click="tradeForm.shares = (Number(tradeForm.shares) || 0) + 50" class="px-2 py-0.5 rounded bg-[#222E39] text-[#E8EEF2] text-[10px]">+50</button>
+              <button type="button" @click="tradeForm.shares = (Number(tradeForm.shares) || 0) + 100" class="px-2 py-0.5 rounded bg-[#222E39] text-[#E8EEF2] text-[10px]">+100</button>
             </div>
           </div>
+          
           <div>
-            <label class="block text-slate-400 mb-1">
-              체결 단가 ({{ isUsTicker(tradeForm.ticker) ? '달러 $' : '원 ₩' }}) <span class="text-red-400">*</span>
+            <label class="block text-[#8FA0AF] mb-1">
+              체결 단가 ({{ isUsTicker(tradeForm.ticker) ? '달러 $' : '원 ₩' }}) <span class="text-[#E8A3B0]">*</span>
             </label>
-            <input v-model.number="tradeForm.price" type="number" step="any" placeholder="예: 10500" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-white">
+            <input v-model.number="tradeForm.price" type="number" step="any" placeholder="예: 8200" class="w-full bg-[#121A21] border border-[#22303C] rounded-xl p-3 text-sm text-[#E8EEF2]">
           </div>
+        </div>
+
+        <!-- 매수 필요 총금액 & 예수금 검증 안내 -->
+        <div v-if="tradeForm.shares && tradeForm.price" class="bg-[#121A21] p-2.5 rounded-xl border border-[#22303C] flex justify-between items-center text-xs">
+          <span class="text-[#8FA0AF]">결제 필요 금액:</span>
+          <span class="font-extrabold text-sm" :class="isTradeCostExceeded ? 'text-[#E8A3B0]' : 'text-[#E8EEF2]'">
+            {{ isUsTicker(tradeForm.ticker) ? '$' : '₩' }} {{ formatNum(tradeForm.shares * tradeForm.price) }}
+            <span v-if="tradeForm.trade_type === 'REINVEST' && isTradeCostExceeded" class="text-[10px] text-[#E8A3B0] block font-normal text-right">
+              (예수금 부족: ₩{{ formatNum((tradeForm.shares * tradeForm.price) - divSummary.remainingCash) }})
+            </span>
+          </span>
         </div>
 
         <div>
-          <label class="block text-slate-400 mb-1">거래일자</label>
-          <input v-model="tradeForm.trade_date" type="date" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-white">
+          <label class="block text-[#8FA0AF] mb-1">거래일자</label>
+          <input v-model="tradeForm.trade_date" type="date" class="w-full bg-[#121A21] border border-[#22303C] rounded-xl p-3 text-sm text-[#E8EEF2]">
         </div>
 
-        <button type="button" @click="submitTrade" :disabled="saving" class="w-full bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 font-black py-3.5 rounded-xl text-slate-950 text-sm mt-2 shadow-lg active:scale-98 transition-all">
-          <span v-if="saving"><i class="fa-solid fa-spinner fa-spin mr-1"></i> 저장 중...</span>
-          <span v-else>거래 등록 및 실시간 재계산</span>
+        <button type="button" @click="submitTrade" :disabled="saving" class="w-full bg-[#00D2B4] hover:bg-[#00BC9F] disabled:opacity-50 font-black py-3.5 rounded-xl text-[#0F171E] text-sm mt-2 shadow-lg active:scale-98 transition-all">
+          <span v-if="saving"><i class="fa-solid fa-spinner fa-spin mr-1"></i> 저장 및 재계산 중...</span>
+          <span v-else>{{ isEditMode ? '매매 내역 수정 완료' : (tradeForm.trade_type === 'REINVEST' ? '배당금으로 재매수 등록' : (tradeForm.trade_type === 'BUY' ? '현금 매수 등록' : '매도 등록')) }}</span>
         </button>
       </div>
 
-      <!-- [B] 분배금(배당금) 입력 폼 -->
+      <!-- [B] 분배금(배당금) 입력 및 수정 폼 -->
       <div v-else class="space-y-3 text-xs">
+        <div class="bg-[#00D2B4]/10 border border-[#00D2B4]/30 rounded-xl p-2.5 text-[11px] text-[#00D2B4] flex items-center gap-2">
+          <i class="fa-solid fa-circle-info text-sm"></i>
+          <span>수령한 분배금을 등록/수정하면 예수금에 즉시 반영되며, <b>분배기준일과 기준일 주가</b>를 기준으로 공식 분배율이 자동 계산됩니다!</span>
+        </div>
+
         <div class="relative">
-          <label class="block text-slate-400 mb-1">종목 티커/코드 <span class="text-amber-400">*</span></label>
+          <label class="block text-[#8FA0AF] mb-1">종목 티커/코드 <span class="text-[#00D2B4]">*</span></label>
           <div class="flex gap-2">
-            <input v-model="divForm.ticker" @input="onTickerInput('div')" placeholder="예: 441680 또는 JEPQ" 
-                   class="flex-1 bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm uppercase text-white font-mono">
-            <button type="button" @click="fetchOfficialName('div')" class="px-3 bg-slate-800 hover:bg-slate-700 rounded-xl text-xs border border-slate-700 text-amber-400">
+            <input v-model="divForm.ticker" @input="onTickerInput('div')" placeholder="예: 0219E0 또는 JEPQ" 
+                   class="flex-1 bg-[#121A21] border border-[#22303C] rounded-xl p-3 text-sm uppercase text-[#E8EEF2] font-mono">
+            <button type="button" @click="fetchOfficialName('div')" class="px-3 bg-[#222E39] hover:bg-[#2C3B49] rounded-xl text-xs border border-[#263541] text-[#00D2B4]">
               조회
             </button>
           </div>
 
           <!-- 자동 완성 드롭다운 -->
           <div v-if="tickerSuggestions.length > 0 && activeSuggestionForm === 'div'" 
-               class="absolute left-0 right-0 top-full mt-1 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-50 max-h-48 overflow-y-auto">
+               class="absolute left-0 right-0 top-full mt-1 bg-[#1A242D] border border-[#263541] rounded-xl shadow-2xl z-50 max-h-48 overflow-y-auto">
             <div v-for="s in tickerSuggestions" :key="s.ticker" @click="selectSuggestion('div', s)" 
-                 class="p-2.5 hover:bg-slate-700 cursor-pointer border-b border-slate-750 flex justify-between items-center text-xs">
+                 class="p-2.5 hover:bg-[#222E39] cursor-pointer border-b border-[#22303C] flex justify-between items-center text-xs">
               <div>
-                <b class="text-white">{{ s.ticker }}</b> <span class="text-slate-300 ml-1.5">{{ s.name }}</span>
+                <b class="text-[#E8EEF2]">{{ s.ticker }}</b> <span class="text-[#8FA0AF] ml-1.5">{{ s.name }}</span>
               </div>
-              <span class="text-[10px] text-slate-400">{{ s.market }}</span>
+              <span class="text-[10px] text-[#8FA0AF]">{{ s.market }}</span>
             </div>
           </div>
         </div>
 
+        <!-- 보유 주수 자동 연동 안내 -->
+        <div v-if="getHoldingShares(divForm.ticker) > 0" class="bg-[#121A21] p-2.5 rounded-xl border border-[#22303C] flex justify-between items-center text-xs">
+          <span class="text-[#8FA0AF]">현재 보유 주식 수:</span>
+          <b class="text-[#00D2B4]">{{ getHoldingShares(divForm.ticker) }} 주</b>
+        </div>
+
         <div class="grid grid-cols-2 gap-2">
           <div>
-            <label class="block text-slate-400 mb-1">실수령액(원) <span class="text-amber-400">*</span></label>
-            <input v-model.number="divForm.total_received" type="number" placeholder="예: 35000" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-white">
+            <label class="block text-[#8FA0AF] mb-1">
+              주당 분배금({{ isUsTicker(divForm.ticker) ? '$' : '원' }})
+            </label>
+            <input v-model.number="divForm.dividend_per_share" @input="onDpsInput" type="number" step="any" placeholder="예: 150" class="w-full bg-[#121A21] border border-[#22303C] rounded-xl p-3 text-sm text-[#E8EEF2]">
           </div>
           <div>
-            <label class="block text-slate-400 mb-1">지급일자</label>
-            <input v-model="divForm.pay_date" type="date" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-white">
+            <label class="block text-[#8FA0AF] mb-1">
+              총 실수령액(원) <span class="text-[#00D2B4]">*</span>
+            </label>
+            <input v-model.number="divForm.total_received" @input="onTotalReceivedInput" type="number" placeholder="예: 35000" class="w-full bg-[#121A21] border border-[#22303C] rounded-xl p-3 text-sm text-[#E8EEF2]">
           </div>
         </div>
 
-        <div>
-          <label class="block text-slate-400 mb-1">분배금 라이프사이클 상태</label>
-          <select v-model="divForm.status" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-white">
-            <option value="CASH">예수금 보관 (아직 안 쓴 남은 분배금)</option>
-            <option value="REINVEST">주식 재매수(재투자)에 사용</option>
-            <option value="WITHDRAW">생활비/외부 계좌로 인출</option>
-          </select>
+        <!-- 지급일자 & 분배기준일 자동 연동 입력 -->
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-[#8FA0AF] mb-1">지급일자</label>
+            <input v-model="divForm.pay_date" @change="onPayDateChange" type="date" class="w-full bg-[#121A21] border border-[#22303C] rounded-xl p-3 text-sm text-[#E8EEF2]">
+          </div>
+          <div>
+            <label class="block text-[#8FA0AF] mb-1">
+              분배기준일 <span class="text-[#00D2B4]">*</span>
+            </label>
+            <input v-model="divForm.record_date" type="date" class="w-full bg-[#121A21] border border-[#22303C] rounded-xl p-3 text-sm text-[#00D2B4] font-bold">
+          </div>
         </div>
 
-        <button type="button" @click="submitDividend" :disabled="saving" class="w-full bg-amber-400 hover:bg-amber-300 disabled:opacity-50 font-black py-3.5 rounded-xl text-slate-950 text-sm mt-2 shadow-lg active:scale-98 transition-all">
+        <!-- 분배기준일 당시 주가 -->
+        <div>
+          <label class="block text-[#8FA0AF] mb-1">
+            분배기준일 당시 주가({{ isUsTicker(divForm.ticker) ? '$' : '원' }}) <span class="text-[#8FA0AF] font-normal">(분배율 계산 기준)</span>
+          </label>
+          <input v-model.number="divForm.base_price" type="number" step="any" placeholder="예: 8500" class="w-full bg-[#121A21] border border-[#22303C] rounded-xl p-3 text-sm text-[#E8EEF2]">
+          <span class="text-[10px] text-[#8FA0AF] mt-1 block">미입력 시 해당 종목의 기준 가격 또는 평단가로 자동 산출됩니다.</span>
+        </div>
+
+        <button type="button" @click="submitDividend" :disabled="saving" class="w-full bg-[#00D2B4] hover:bg-[#00BC9F] disabled:opacity-50 font-black py-3.5 rounded-xl text-[#0F171E] text-sm mt-2 shadow-lg active:scale-98 transition-all">
           <span v-if="saving"><i class="fa-solid fa-spinner fa-spin mr-1"></i> 저장 중...</span>
-          <span v-else>분배금 기록 저장하기</span>
+          <span v-else>{{ isEditMode ? '분배금 내역 수정 완료' : '분배금 예수금으로 입금하기' }}</span>
         </button>
       </div>
 
@@ -626,7 +1117,7 @@
 <!-- JavaScript 핵심 금융 로직 & Supabase 연동 -->
 <!-- ════════════════════════════════════════════════════════════════ -->
 <script>
-  // 1. Supabase 연동 설정 (기본 세팅 완료)
+  // 1. Supabase 연동 설정
   const SUPABASE_URL = "https://wlavetbnglzrpkeyesqv.supabase.co";
   const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndsYXZldGJuZ2x6cnBrZXllc3F2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg1NDQ1MTMsImV4cCI6MjEwNDEyMDUxM30.1hk6OBMoqTcpUHEVxjXlIfr1SKf776sa-65xPPSy35M";
 
@@ -639,8 +1130,26 @@
     console.error("Supabase 초기화 에러:", err);
   }
 
-  // 주요 커버드콜 및 배당 ETF 내장 공식 명칭 사전 (빠른 자동 완성)
+  // 주요 커버드콜 및 고배당 ETF 내장 공식 명칭 사전 (네이버 공식 기준)
   const PRESET_TICKERS = {
+    // 국내 상장 주요 커버드콜 / 배당
+    "0198A0": { name: "KIWOOM 코스닥150커버드액티브", market: "KR" },
+    "O198A0": { name: "KIWOOM 코스닥150커버드액티브", market: "KR" },
+    "0219E0": { name: "KODEX 200커버드액티브", market: "KR" },
+    "441680": { name: "TIGER 미국나스닥100커버드콜(합성)", market: "KR" },
+    "486290": { name: "TIGER 미국나스닥100타겟데일리커버드콜", market: "KR" },
+    "458730": { name: "TIGER 미국배당다우존스", market: "KR" },
+    "458740": { name: "ACE 미국배당다우존스한국형(H)", market: "KR" },
+    "453850": { name: "SOL 미국배당다우존스", market: "KR" },
+    "458760": { name: "TIGER 미국배당다우존스", market: "KR" },
+    "482730": { name: "TIGER 미국S&P500타겟데일리커버드콜", market: "KR" },
+    "484980": { name: "ACE 미국500 15%프리미엄분배(합성)", market: "KR" },
+    "486300": { name: "KODEX 테슬라커버드콜채권혼합액티브", market: "KR" },
+    "491620": { name: "KODEX 미국AI테크TOP10+15%프리미엄", market: "KR" },
+    "491630": { name: "KODEX 미국30년국채+12%프리미엄", market: "KR" },
+    "492060": { name: "TIGER 미국AI빅테크10타겟커버드콜", market: "KR" },
+    "492070": { name: "TIGER 미국30년국채프리미엄액티브(H)", market: "KR" },
+
     // 미국 상장 주요 커버드콜 / 고배당
     "JEPQ": { name: "JPMorgan Nasdaq Equity Premium Income ETF", market: "US" },
     "JEPI": { name: "JPMorgan Equity Premium Income ETF", market: "US" },
@@ -655,25 +1164,49 @@
     "O": { name: "Realty Income Corporation", market: "US" },
     "SPYI": { name: "NEOS S&P 500 High Income ETF", market: "US" },
     "QQQI": { name: "NEOS Nasdaq-100 High Income ETF", market: "US" },
-    "TLTW": { name: "iShares 20+ Year Treasury BuyWrite ETF", market: "US" },
-
-    // 국내 상장 주요 커버드콜 / 배당
-    "441680": { name: "TIGER 미국나스닥100커버드콜(합성)", market: "KR" },
-    "486290": { name: "KODEX 200커버드콜액티브", market: "KR" },
-    "458730": { name: "ACE 미국배당다우존스", market: "KR" },
-    "458740": { name: "ACE 미국배당다우존스한국형(H)", market: "KR" },
-    "453850": { name: "SOL 미국배당다우존스", market: "KR" },
-    "458760": { name: "TIGER 미국배당다우존스", market: "KR" },
-    "482730": { name: "TIGER 미국배당+7%프리미엄다우존스", market: "KR" },
-    "484980": { name: "ACE 미국500 15%프리미엄분배(합성)", market: "KR" },
-    "486300": { name: "KODEX 테슬라커버드콜채권혼합액티브", market: "KR" },
-    "491620": { name: "KODEX 미국AI테크TOP10+15%프리미엄", market: "KR" },
-    "491630": { name: "KODEX 미국30년국채+12%프리미엄", market: "KR" },
-    "492060": { name: "TIGER 미국AI빅테크10타겟커버드콜", market: "KR" },
-    "492070": { name: "TIGER 미국30년국채프리미엄액티브(H)", market: "KR" },
-    "0198A0": { name: "키움 코스닥150 커버드콜", market: "KR" },
-    "O198A0": { name: "키움 코스닥150 커버드콜", market: "KR" }
+    "TLTW": { name: "iShares 20+ Year Treasury BuyWrite ETF", market: "US" }
   };
+
+  // 사전 등록 기본 종가
+  const PRESET_PRICES = {
+    "0198A0": { close_price: 8580, prev_close: 8300, change_pct: 3.37, name: "KIWOOM 코스닥150커버드액티브", market: "KR" },
+    "O198A0": { close_price: 8580, prev_close: 8300, change_pct: 3.37, name: "KIWOOM 코스닥150커버드액티브", market: "KR" },
+    "0219E0": { close_price: 8200, prev_close: 8050, change_pct: 1.86, name: "KODEX 200커버드액티브", market: "KR" },
+    "441680": { close_price: 10590, prev_close: 10545, change_pct: 0.43, name: "TIGER 미국나스닥100커버드콜(합성)", market: "KR" },
+    "486290": { close_price: 10325, prev_close: 10200, change_pct: 1.23, name: "TIGER 미국나스닥100타겟데일리커버드콜", market: "KR" },
+    "JEPQ": { close_price: 59.87, prev_close: 59.69, change_pct: 0.3, name: "JPMorgan Nasdaq Equity Premium Income ETF", market: "US" },
+    "JEPI": { close_price: 57.22, prev_close: 57.43, change_pct: -0.37, name: "JPMorgan Equity Premium Income ETF", market: "US" }
+  };
+
+  // 분배기준일 자동 산출 헬퍼 (지급일 기준 전월 말일 또는 당월 말일의 직전 영업일)
+  function calculateRecordDate(payDateStr) {
+    if (!payDateStr) return new Date().toISOString().split('T')[0];
+    const [y, m, d] = payDateStr.split('-').map(Number);
+    const day = d || 1;
+    let targetYear = y;
+    let targetMonth = m; // 1-indexed
+
+    if (day <= 15) {
+      targetMonth = m - 1;
+      if (targetMonth === 0) {
+        targetMonth = 12;
+        targetYear = y - 1;
+      }
+    }
+
+    const lastDayDate = new Date(targetYear, targetMonth, 0);
+    const dayOfWeek = lastDayDate.getDay();
+    if (dayOfWeek === 6) {
+      lastDayDate.setDate(lastDayDate.getDate() - 1);
+    } else if (dayOfWeek === 0) {
+      lastDayDate.setDate(lastDayDate.getDate() - 2);
+    }
+
+    const yStr = lastDayDate.getFullYear();
+    const mStr = String(lastDayDate.getMonth() + 1).padStart(2, '0');
+    const dStr = String(lastDayDate.getDate()).padStart(2, '0');
+    return `${yStr}-${mStr}-${dStr}`;
+  }
 
   const { createApp, ref, computed, onMounted } = Vue;
 
@@ -685,31 +1218,41 @@
       const toastType = ref("success");
       const modalError = ref("");
 
-      const currentTab = ref('holdings'); // 'holdings', 'calendar', 'trades', 'dividends', 'simulator'
+      const currentTab = ref('holdings'); // 'holdings', 'dividends', 'trades', 'calendar', 'reinvestGuide', 'simulator'
       const showModal = ref(false);
-      const formType = ref('TRADE'); // 'TRADE' or 'DIVIDEND'
+      const formType = ref('TRADE');
+      const isEditMode = ref(false);
+      const editingId = ref(null);
 
       // 데이터 저장소
       const transactions = ref([]);
       const dividends = ref([]);
       const dailyPrices = ref({});
-      const exchangeRate = ref(1380); // 기본 환율
+      const exchangeRate = ref(1380);
 
       // 필터 및 목표
-      const tradeFilter = ref('ALL'); // 'ALL', 'BUY', 'SELL'
+      const tradeFilter = ref('ALL');
       const monthlyGoal = ref(Number(localStorage.getItem('cc_monthly_goal') || 500000));
       const calcTargetMonthly = ref(1000000);
       const calcAnnualYield = ref(10.0);
+      const calendarYear = ref(new Date().getFullYear());
 
       // 입력 폼
       const tradeForm = ref({
-        trade_type: 'BUY', ticker: '', name: '', shares: null, price: null, 
+        trade_type: 'BUY',
+        ticker: '', name: '', shares: null, price: null, 
         trade_date: new Date().toISOString().split('T')[0]
       });
 
+      const initialPayDate = new Date().toISOString().split('T')[0];
       const divForm = ref({
-        ticker: '', total_received: null, status: 'CASH', 
-        pay_date: new Date().toISOString().split('T')[0]
+        ticker: '', 
+        total_received: null, 
+        dividend_per_share: null, 
+        status: 'CASH', 
+        pay_date: initialPayDate,
+        record_date: calculateRecordDate(initialPayDate),
+        base_price: null
       });
 
       // 티커 자동완성 제안
@@ -722,13 +1265,25 @@
         setTimeout(() => { toastMessage.value = ''; }, 3000);
       };
 
-      const openModal = () => {
+      const openNewModal = () => {
+        isEditMode.value = false;
+        editingId.value = null;
         modalError.value = "";
         tickerSuggestions.value = [];
         showModal.value = true;
       };
 
-      // 실시간 환율 조회 (무료 API)
+      // 티커 정규화
+      const normalizeTicker = (t) => {
+        if (!t) return "";
+        let clean = t.trim().toUpperCase();
+        if (clean.startsWith('O') && clean.length === 6) {
+          clean = '0' + clean.slice(1);
+        }
+        return clean;
+      };
+
+      // 실시간 환율 조회
       const fetchExchangeRate = async () => {
         try {
           const res = await fetch("https://open.er-api.com/v6/latest/USD");
@@ -741,7 +1296,7 @@
         }
       };
 
-      // 전체 데이터 로드
+      // 전체 데이터 로드 (Supabase)
       const loadAllData = async () => {
         if (!supabaseClient) {
           showToast("Supabase 초기화에 실패했습니다.", "error");
@@ -772,12 +1327,18 @@
           const pMap = {};
           (priceRes.data || []).forEach(p => { 
             if (p && p.ticker) {
-              pMap[p.ticker.toUpperCase()] = p; 
+              const up = p.ticker.toUpperCase();
+              pMap[up] = p;
+              const norm = normalizeTicker(up);
+              pMap[norm] = p;
+              if (norm.startsWith('0') && norm.length === 6) {
+                pMap['O' + norm.slice(1)] = p;
+              }
             }
           });
           dailyPrices.value = pMap;
 
-          showToast("데이터를 최신 상태로 갱신했습니다!");
+          showToast("네이버 증권 시세 및 원장을 최신으로 갱신했습니다!");
         } catch (e) {
           console.error("데이터 로딩 실패:", e);
           showToast("데이터 불러오기 실패: " + (e.message || e), "error");
@@ -792,60 +1353,108 @@
         const upper = t.trim().toUpperCase();
         if (PRESET_TICKERS[upper]?.market === 'US') return true;
         if (dailyPrices.value[upper]?.market === 'US') return true;
-        return /^[A-Z]{1,5}$/.test(upper); // 영문 1~5자리 티커
+        return /^[A-Z]{1,5}$/.test(upper);
       };
 
-      // 티커로부터 공식 종목명 가져오기
+      // 공식 종목명 가져오기
       const getStockName = (ticker) => {
         if (!ticker) return "";
         const t = ticker.trim().toUpperCase();
+        const norm = normalizeTicker(t);
         if (dailyPrices.value[t]?.name) return dailyPrices.value[t].name;
+        if (dailyPrices.value[norm]?.name) return dailyPrices.value[norm].name;
         if (PRESET_TICKERS[t]?.name) return PRESET_TICKERS[t].name;
-        const found = transactions.value.find(tx => tx.ticker.toUpperCase() === t && tx.name);
+        if (PRESET_TICKERS[norm]?.name) return PRESET_TICKERS[norm].name;
+        const found = transactions.value.find(tx => {
+          const txT = tx.ticker.toUpperCase();
+          return (txT === t || normalizeTicker(txT) === norm) && tx.name;
+        });
         return found ? found.name : t;
       };
 
-      // 티커 입력 시 실시간 제안 리스트 생성
+      // 특정 종목의 현재 보유 주식수 조회 헬퍼
+      const getHoldingShares = (ticker) => {
+        if (!ticker) return 0;
+        const norm = normalizeTicker(ticker.trim().toUpperCase());
+        const h = holdings.value.find(item => item.ticker === norm || item.rawTicker === ticker.toUpperCase());
+        return h ? h.shares : 0;
+      };
+
+      // 지급일 변경 시 분배기준일 자동 계산
+      const onPayDateChange = () => {
+        divForm.value.record_date = calculateRecordDate(divForm.value.pay_date);
+      };
+
+      // 분배금 입력 시 주당 분배금 <-> 총액 상호 자동 계산
+      const onDpsInput = () => {
+        const dps = Number(divForm.value.dividend_per_share) || 0;
+        const shares = getHoldingShares(divForm.value.ticker);
+        if (dps > 0 && shares > 0) {
+          const isUS = isUsTicker(divForm.value.ticker);
+          const rate = exchangeRate.value || 1380;
+          const total = isUS ? (dps * shares * rate) : (dps * shares);
+          divForm.value.total_received = Math.round(total);
+        }
+      };
+
+      const onTotalReceivedInput = () => {
+        const total = Number(divForm.value.total_received) || 0;
+        const shares = getHoldingShares(divForm.value.ticker);
+        if (total > 0 && shares > 0) {
+          const isUS = isUsTicker(divForm.value.ticker);
+          const rate = exchangeRate.value || 1380;
+          const dps = isUS ? (total / (shares * rate)) : (total / shares);
+          divForm.value.dividend_per_share = isUS ? Number(dps.toFixed(3)) : Math.round(dps);
+        }
+      };
+
+      // 티커 자동완성 제안
       const onTickerInput = (form) => {
         activeSuggestionForm.value = form;
-        const val = (form === 'trade' ? tradeForm.value.ticker : divForm.value.ticker).trim().toUpperCase();
-        if (!val) {
+        const raw = (form === 'trade' ? tradeForm.value.ticker : divForm.value.ticker).trim().toUpperCase();
+        if (!raw) {
           tickerSuggestions.value = [];
           return;
         }
+        const norm = normalizeTicker(raw);
 
         const matches = [];
-        // 1. DB 종가 테이블 검색
         Object.values(dailyPrices.value).forEach(p => {
-          if (p.ticker.includes(val) || (p.name && p.name.includes(val))) {
-            matches.push({ ticker: p.ticker, name: p.name, market: p.market });
+          if (p.ticker.includes(raw) || p.ticker.includes(norm) || (p.name && p.name.includes(raw))) {
+            if (!matches.some(m => m.ticker === p.ticker)) {
+              matches.push({ ticker: p.ticker, name: p.name, market: p.market });
+            }
           }
         });
-        // 2. 프리셋 검색
         Object.entries(PRESET_TICKERS).forEach(([k, v]) => {
-          if ((k.includes(val) || v.name.includes(val)) && !matches.some(m => m.ticker === k)) {
+          if ((k.includes(raw) || k.includes(norm) || v.name.includes(raw)) && !matches.some(m => m.ticker === k)) {
             matches.push({ ticker: k, name: v.name, market: v.market });
           }
         });
 
-        tickerSuggestions.value = matches.slice(0, 5);
-
-        // 일치하는 항목이 바로 있으면 종목명 자동 세팅
+        tickerSuggestions.value = matches.slice(0, 6);
         fetchOfficialName(form, false);
       };
 
-      // 추천 검색어 클릭 시
       const selectSuggestion = (form, item) => {
         if (form === 'trade') {
           tradeForm.value.ticker = item.ticker;
           tradeForm.value.name = item.name;
         } else {
           divForm.value.ticker = item.ticker;
+          const shares = getHoldingShares(item.ticker);
+          if (shares > 0 && divForm.value.dividend_per_share) {
+            onDpsInput();
+          }
+          const norm = normalizeTicker(item.ticker);
+          const h = holdings.value.find(hItem => hItem.ticker === norm);
+          if (h && !divForm.value.base_price) {
+            divForm.value.base_price = h.closePrice || h.avgPrice;
+          }
         }
         tickerSuggestions.value = [];
       };
 
-      // 공식 종목명 즉시 조회 버튼
       const fetchOfficialName = (form, showFeedback = true) => {
         const t = (form === 'trade' ? tradeForm.value.ticker : divForm.value.ticker).trim().toUpperCase();
         if (!t) return;
@@ -858,7 +1467,161 @@
         }
       };
 
-      // 거래 등록 (매수 / 매도)
+      // ── [요청 추가] 분배금 내역 수정 모달 열기 ──
+      const openEditDividend = (div) => {
+        isEditMode.value = true;
+        editingId.value = div.id;
+        formType.value = 'DIVIDEND';
+        modalError.value = "";
+
+        divForm.value = {
+          ticker: div.ticker,
+          total_received: Number(div.total_received),
+          dividend_per_share: div.dps || null,
+          status: div.status || 'CASH',
+          pay_date: div.pay_date,
+          record_date: div.recordDate || calculateRecordDate(div.pay_date),
+          base_price: div.basePrice || null
+        };
+
+        showModal.value = true;
+      };
+
+      // ── [요청 추가] 매매 원장 거래 수정 모달 열기 ──
+      const openEditTrade = (tx) => {
+        isEditMode.value = true;
+        editingId.value = tx.id;
+        formType.value = 'TRADE';
+        modalError.value = "";
+
+        tradeForm.value = {
+          trade_type: tx.trade_type || 'BUY',
+          ticker: tx.ticker,
+          name: tx.name || getStockName(tx.ticker),
+          shares: Number(tx.shares),
+          price: Number(tx.price),
+          trade_date: tx.trade_date
+        };
+
+        showModal.value = true;
+      };
+
+      // ── 분배금 예수금 요약 및 재투자 분석 엔진 ────────────────
+      const divSummary = computed(() => {
+        const rate = exchangeRate.value || 1380;
+        let totalReceived = 0;
+        let withdrawn = 0;
+
+        dividends.value.forEach(d => {
+          const amt = Number(d.total_received || 0);
+          totalReceived += amt;
+          if (d.status === 'WITHDRAW') {
+            withdrawn += amt;
+          }
+        });
+
+        let reinvested = 0;
+        transactions.value.forEach(tx => {
+          if (tx.trade_type === 'REINVEST') {
+            const isUS = isUsTicker(tx.ticker);
+            const cost = Number(tx.shares) * Number(tx.price);
+            reinvested += (isUS ? (cost * rate) : cost);
+          }
+        });
+
+        const remainingCash = Math.max(0, Math.round(totalReceived - reinvested - withdrawn));
+        const reinvestRate = totalReceived > 0 ? Math.min(100, Math.round((reinvested / totalReceived) * 100)) : 0;
+        const cashRate = totalReceived > 0 ? Math.min(100, Math.round((remainingCash / totalReceived) * 100)) : 0;
+        const withdrawRate = totalReceived > 0 ? Math.min(100, Math.round((withdrawn / totalReceived) * 100)) : 0;
+
+        return {
+          totalReceived: Math.round(totalReceived),
+          remainingCash,
+          reinvested: Math.round(reinvested),
+          withdrawn: Math.round(withdrawn),
+          reinvestRate, cashRate, withdrawRate
+        };
+      });
+
+      // 배당금 재매수 시 최대 매수 가능 수량
+      const maxAffordableShares = computed(() => {
+        const p = Number(tradeForm.value.price);
+        if (!p || p <= 0) return 0;
+        const isUS = isUsTicker(tradeForm.value.ticker);
+        const rate = exchangeRate.value || 1380;
+        const available = divSummary.value.remainingCash;
+        const priceInKRW = isUS ? (p * rate) : p;
+        return Math.floor(available / priceInKRW);
+      });
+
+      // 입력한 매수 금액이 남은 예수금을 초과하는지 여부
+      const isTradeCostExceeded = computed(() => {
+        if (tradeForm.value.trade_type !== 'REINVEST') return false;
+        const shares = Number(tradeForm.value.shares) || 0;
+        const price = Number(tradeForm.value.price) || 0;
+        if (shares <= 0 || price <= 0) return false;
+        const isUS = isUsTicker(tradeForm.value.ticker);
+        const rate = exchangeRate.value || 1380;
+        const costKRW = isUS ? (shares * price * rate) : (shares * price);
+        return costKRW > divSummary.value.remainingCash;
+      });
+
+      // ── 재투자 가이드용 계산 헬퍼 함수들 ──
+      const calcMaxSharesFor = (h) => {
+        const p = Number(h.closePrice);
+        if (!p || p <= 0) return 0;
+        const isUS = h.market === 'US';
+        const rate = exchangeRate.value || 1380;
+        const priceKRW = isUS ? (p * rate) : p;
+        return Math.floor(divSummary.value.remainingCash / priceKRW);
+      };
+
+      const calcMaxCostFor = (h) => {
+        const maxS = calcMaxSharesFor(h);
+        const p = Number(h.closePrice);
+        const isUS = h.market === 'US';
+        const rate = exchangeRate.value || 1380;
+        const priceKRW = isUS ? (p * rate) : p;
+        return Math.round(maxS * priceKRW);
+      };
+
+      const calcUnitCost = (h, qty) => {
+        const p = Number(h.closePrice);
+        const isUS = h.market === 'US';
+        const rate = exchangeRate.value || 1380;
+        const priceKRW = isUS ? (p * rate) : p;
+        return Math.round(qty * priceKRW);
+      };
+
+      const formatNumShort = (val) => {
+        if (!val || val <= 0) return "0";
+        if (val >= 100000000) {
+          return (val / 100000000).toFixed(1) + "억";
+        }
+        if (val >= 10000) {
+          return (val / 10000).toFixed(1) + "만";
+        }
+        return Number(val).toLocaleString();
+      };
+
+      // 재투자 가이드에서 원클릭 매수 모달 호출
+      const quickReinvest = (h, qty) => {
+        if (!qty || qty <= 0) return;
+        isEditMode.value = false;
+        editingId.value = null;
+        tradeForm.value = {
+          trade_type: 'REINVEST',
+          ticker: h.ticker,
+          name: h.name,
+          shares: qty,
+          price: h.closePrice,
+          trade_date: new Date().toISOString().split('T')[0]
+        };
+        formType.value = 'TRADE';
+        showModal.value = true;
+      };
+
+      // 거래 등록 및 수정 (통합)
       const submitTrade = async () => {
         modalError.value = "";
         const t = tradeForm.value;
@@ -876,26 +1639,79 @@
           return;
         }
 
+        const rawTicker = t.ticker.trim().toUpperCase();
+        const cleanTicker = normalizeTicker(rawTicker);
+        const cleanName = t.name && t.name.trim() ? t.name.trim() : getStockName(cleanTicker);
+        const tradePrice = Number(t.price);
+        const tradeShares = Number(t.shares);
+        const isUS = isUsTicker(cleanTicker);
+        const rate = exchangeRate.value || 1380;
+
+        if (t.trade_type === 'REINVEST') {
+          const costKRW = isUS ? (tradeShares * tradePrice * rate) : (tradeShares * tradePrice);
+          if (!isEditMode.value && costKRW > divSummary.value.remainingCash) {
+            modalError.value = `현재 남은 분배금 예수금(₩${formatNum(divSummary.value.remainingCash)})이 부족합니다. (필요금액: ₩${formatNum(costKRW)})`;
+            return;
+          }
+        }
+
         saving.value = true;
         try {
-          const cleanTicker = t.ticker.trim().toUpperCase();
-          const cleanName = t.name && t.name.trim() ? t.name.trim() : getStockName(cleanTicker);
-
           const payload = {
-            id: Date.now(),
             trade_type: t.trade_type,
             ticker: cleanTicker,
             name: cleanName,
-            shares: Number(t.shares),
-            price: Number(t.price),
+            shares: tradeShares,
+            price: tradePrice,
             trade_date: t.trade_date
           };
 
-          const { error } = await supabaseClient.from('transactions').insert([payload]);
-          if (error) throw error;
+          if (isEditMode.value && editingId.value) {
+            // 기존 거래 내역 수정 (Update)
+            const { error: txError } = await supabaseClient.from('transactions').update(payload).eq('id', editingId.value);
+            if (txError) throw txError;
+            showToast("✅ 매매 원장 기록이 성공적으로 수정되었습니다!");
+          } else {
+            // 신규 거래 등록 (Insert)
+            payload.id = Date.now();
+            const { error: txError } = await supabaseClient.from('transactions').insert([payload]);
+            if (txError) throw txError;
+            const successMsg = t.trade_type === 'REINVEST' 
+              ? "✅ 분배금(예수금)으로 주식 재매수가 성공적으로 기록되었습니다!" 
+              : "✅ 거래가 성공적으로 등록되었습니다!";
+            showToast(successMsg);
+          }
 
-          showToast("✅ 거래가 성공적으로 등록되었습니다!");
+          if (!dailyPrices.value[cleanTicker]) {
+            try {
+              await supabaseClient.from('daily_prices').upsert([{
+                ticker: cleanTicker,
+                name: cleanName,
+                close_price: tradePrice,
+                prev_close: tradePrice,
+                change_pct: 0,
+                market: isUS ? 'US' : 'KR',
+                updated_at: new Date().toISOString()
+              }]);
+              if (rawTicker !== cleanTicker) {
+                await supabaseClient.from('daily_prices').upsert([{
+                  ticker: rawTicker,
+                  name: cleanName,
+                  close_price: tradePrice,
+                  prev_close: tradePrice,
+                  change_pct: 0,
+                  market: isUS ? 'US' : 'KR',
+                  updated_at: new Date().toISOString()
+                }]);
+              }
+            } catch (pErr) {
+              console.warn("기본 시세 등록 건너뜀:", pErr);
+            }
+          }
+
           showModal.value = false;
+          isEditMode.value = false;
+          editingId.value = null;
           tradeForm.value = { trade_type: 'BUY', ticker: '', name: '', shares: null, price: null, trade_date: new Date().toISOString().split('T')[0] };
           await loadAllData();
         } catch (err) {
@@ -918,7 +1734,7 @@
         }
       };
 
-      // 분배금 등록
+      // 분배금 등록 및 수정 (통합)
       const submitDividend = async () => {
         modalError.value = "";
         const d = divForm.value;
@@ -934,22 +1750,55 @@
 
         saving.value = true;
         try {
-          const payload = {
-            id: Date.now(),
-            ticker: d.ticker.trim().toUpperCase(),
-            total_received: Number(d.total_received),
-            status: d.status,
-            pay_date: d.pay_date,
-            shares_held: 0,
-            dividend_per_share: 0
+          const rawT = d.ticker.trim().toUpperCase();
+          const cleanT = normalizeTicker(rawT);
+          const currentShares = getHoldingShares(cleanT);
+          const dps = Number(d.dividend_per_share) || (currentShares > 0 ? Math.round(Number(d.total_received) / currentShares) : 0);
+          
+          const recordDate = d.record_date || calculateRecordDate(d.pay_date);
+          const basePrice = d.base_price ? Number(d.base_price) : null;
+          
+          const memoObj = {
+            recordDate,
+            basePrice
           };
 
-          const { error } = await supabaseClient.from('dividends').insert([payload]);
-          if (error) throw error;
+          const payload = {
+            ticker: cleanT,
+            total_received: Number(d.total_received),
+            status: d.status || 'CASH',
+            pay_date: d.pay_date,
+            shares_held: currentShares,
+            dividend_per_share: dps,
+            memo: JSON.stringify(memoObj)
+          };
 
-          showToast("✅ 분배금 내역이 저장되었습니다!");
+          if (isEditMode.value && editingId.value) {
+            // 기존 분배금 내역 수정 (Update)
+            const { error } = await supabaseClient.from('dividends').update(payload).eq('id', editingId.value);
+            if (error) throw error;
+            showToast("✅ 분배금 내역(지급일/금액/기준일)이 성공적으로 수정되었습니다!");
+          } else {
+            // 신규 분배금 등록 (Insert)
+            payload.id = Date.now();
+            const { error } = await supabaseClient.from('dividends').insert([payload]);
+            if (error) throw error;
+            showToast("✅ 분배기준일과 분배금이 성공적으로 등록되었습니다!");
+          }
+
           showModal.value = false;
-          divForm.value = { ticker: '', total_received: null, status: 'CASH', pay_date: new Date().toISOString().split('T')[0] };
+          isEditMode.value = false;
+          editingId.value = null;
+          const todayStr = new Date().toISOString().split('T')[0];
+          divForm.value = { 
+            ticker: '', 
+            total_received: null, 
+            dividend_per_share: null, 
+            status: 'CASH', 
+            pay_date: todayStr,
+            record_date: calculateRecordDate(todayStr),
+            base_price: null
+          };
           await loadAllData();
         } catch (err) {
           modalError.value = "분배금 저장 실패: " + err.message;
@@ -971,12 +1820,13 @@
         }
       };
 
-      // 분배금 상태 변경 토글 (예수금 / 재매수 / 인출)
-      const updateDivStatus = async (id, status) => {
+      // 분배금 외부 인출 상태 토글
+      const toggleWithdraw = async (item) => {
+        const nextStatus = item.status === 'WITHDRAW' ? 'CASH' : 'WITHDRAW';
         try {
-          const { error } = await supabaseClient.from('dividends').update({ status }).eq('id', id);
+          const { error } = await supabaseClient.from('dividends').update({ status: nextStatus }).eq('id', item.id);
           if (error) throw error;
-          showToast("상태가 변경되었습니다.");
+          showToast(nextStatus === 'WITHDRAW' ? "외부 인출로 변경되었습니다." : "예수금 보관으로 복구되었습니다.");
           await loadAllData();
         } catch (e) {
           showToast("상태 변경 오류: " + e.message, "error");
@@ -993,87 +1843,289 @@
         }
       };
 
-      // ── 포트폴리오 금융 계산 엔진 ────────────────────────────────
+      // 현재가 직접 수정
+      const editPrice = async (item) => {
+        const current = item.closePrice || item.avgPrice;
+        const unit = item.market === 'US' ? '달러($)' : '원(₩)';
+        const val = prompt(`[${item.name}]의 현재 시장 가격(${unit})을 입력하세요:`, current);
+        if (!val || isNaN(val) || Number(val) <= 0) return;
+
+        const newPrice = Number(val);
+        const norm = normalizeTicker(item.ticker);
+
+        if (supabaseClient) {
+          try {
+            const records = [{
+              ticker: norm,
+              name: item.name,
+              close_price: newPrice,
+              prev_close: item.closePrice || newPrice,
+              change_pct: item.closePrice > 0 ? Number((((newPrice - item.closePrice) / item.closePrice) * 100).toFixed(2)) : 0,
+              market: item.market,
+              updated_at: new Date().toISOString()
+            }];
+            if (item.ticker.toUpperCase() !== norm) {
+              records.push({
+                ticker: item.ticker.toUpperCase(),
+                name: item.name,
+                close_price: newPrice,
+                prev_close: item.closePrice || newPrice,
+                change_pct: item.closePrice > 0 ? Number((((newPrice - item.closePrice) / item.closePrice) * 100).toFixed(2)) : 0,
+                market: item.market,
+                updated_at: new Date().toISOString()
+              });
+            }
+
+            const { error } = await supabaseClient.from('daily_prices').upsert(records);
+            if (error) throw error;
+            showToast(`'${item.name}' 현재가가 ${formatNum(newPrice)}${unit}으로 저장되었습니다!`);
+            await loadAllData();
+            return;
+          } catch (e) {
+            console.warn("DB 업데이트 제한, 로컬 캐시 적용:", e);
+          }
+        }
+
+        const fallbackObj = {
+          ticker: norm,
+          name: item.name,
+          close_price: newPrice,
+          prev_close: item.closePrice || newPrice,
+          change_pct: item.closePrice > 0 ? Number((((newPrice - item.closePrice) / item.closePrice) * 100).toFixed(2)) : 0,
+          market: item.market
+        };
+        dailyPrices.value[norm] = fallbackObj;
+        dailyPrices.value[item.ticker] = fallbackObj;
+        showToast(`'${item.name}' 현재가가 ${formatNum(newPrice)}${unit}으로 화면에 반영되었습니다.`);
+      };
+
+      // ── 포트폴리오 금융 계산 엔진 ──
       const holdings = computed(() => {
         const map = {};
-        // 매매 거래를 시간순으로 정렬하여 평단가 및 수량 계산
         const sortedTx = [...transactions.value].sort((a, b) => new Date(a.trade_date) - new Date(b.trade_date));
 
         sortedTx.forEach(tx => {
-          const t = tx.ticker.toUpperCase();
+          const rawT = tx.ticker.toUpperCase();
+          const t = normalizeTicker(rawT);
           if (!map[t]) {
             map[t] = { 
               ticker: t, 
+              rawTicker: rawT,
               name: tx.name || getStockName(t), 
               shares: 0, 
-              totalCost: 0, 
+              cashShares: 0,
+              reinvestShares: 0,
+              pureCashCost: 0,
+              reinvestCost: 0,
               realizedPnl: 0,
               market: isUsTicker(t) ? 'US' : 'KR'
             };
           }
+
+          const qty = Number(tx.shares);
+          const pr = Number(tx.price);
+
           if (tx.trade_type === 'BUY') {
-            map[t].shares += Number(tx.shares);
-            map[t].totalCost += (Number(tx.shares) * Number(tx.price));
+            map[t].shares += qty;
+            map[t].cashShares += qty;
+            map[t].pureCashCost += (qty * pr);
+          } else if (tx.trade_type === 'REINVEST') {
+            map[t].shares += qty;
+            map[t].reinvestShares += qty;
+            map[t].reinvestCost += (qty * pr);
           } else if (tx.trade_type === 'SELL') {
-            const avg = map[t].shares > 0 ? (map[t].totalCost / map[t].shares) : 0;
-            const sellShares = Number(tx.shares);
-            map[t].realizedPnl += ((Number(tx.price) - avg) * sellShares);
-            map[t].shares -= sellShares;
-            map[t].totalCost -= (sellShares * avg);
+            const totalAcquisition = map[t].pureCashCost + map[t].reinvestCost;
+            const avg = map[t].shares > 0 ? (totalAcquisition / map[t].shares) : 0;
+            map[t].realizedPnl += ((pr - avg) * qty);
+            
+            if (map[t].shares > 0) {
+              const cashRatio = map[t].cashShares / map[t].shares;
+              map[t].cashShares = Math.max(0, map[t].cashShares - (qty * cashRatio));
+              map[t].reinvestShares = Math.max(0, map[t].reinvestShares - (qty * (1 - cashRatio)));
+              map[t].pureCashCost = Math.max(0, map[t].pureCashCost - (qty * cashRatio * avg));
+              map[t].reinvestCost = Math.max(0, map[t].reinvestCost - (qty * (1 - cashRatio) * avg));
+            }
+            map[t].shares = Math.max(0, map[t].shares - qty);
           }
         });
 
-        // 분배금 집계
         const divMap = {};
+        const lastDivMap = {};
         dividends.value.forEach(d => {
-          const t = d.ticker.toUpperCase();
+          const t = normalizeTicker(d.ticker.toUpperCase());
           divMap[t] = (divMap[t] || 0) + Number(d.total_received);
+          if (!lastDivMap[t] || new Date(d.pay_date) > new Date(lastDivMap[t].pay_date)) {
+            lastDivMap[t] = d;
+          }
         });
 
         const rate = exchangeRate.value || 1380;
 
         return Object.values(map).filter(h => h.shares > 0).map(h => {
-          const p = dailyPrices.value[h.ticker] || {};
+          const norm = h.ticker;
+          const raw = h.rawTicker;
+          const p = dailyPrices.value[norm] || dailyPrices.value[raw] || PRESET_PRICES[norm] || PRESET_PRICES[raw] || {};
           const isUS = h.market === 'US';
-          const closePrice = Number(p.close_price || (h.totalCost / h.shares));
-          const prevClose = Number(p.prev_close || closePrice);
-          const changePct = p.change_pct !== undefined ? p.change_pct : 0;
-
-          const avgPrice = h.shares > 0 ? (h.totalCost / h.shares) : 0;
           
-          // 평가 금액 (미국 종목은 달러 -> 원화 환산)
+          const totalAcquisition = h.pureCashCost + h.reinvestCost;
+          const hasPrice = p.close_price !== undefined;
+          const closePrice = Number(hasPrice ? p.close_price : (h.shares > 0 ? (totalAcquisition / h.shares) : 0));
+          const prevClose = Number(p.prev_close || closePrice);
+          const changePct = p.change_pct !== undefined ? p.change_pct : (prevClose > 0 ? Number((((closePrice - prevClose) / prevClose) * 100).toFixed(2)) : 0);
+
+          const avgPrice = h.shares > 0 ? (totalAcquisition / h.shares) : 0;
+          
           const evalAmountRaw = h.shares * closePrice;
           const evalAmountKRW = isUS ? (evalAmountRaw * rate) : evalAmountRaw;
           const evalAmountUSD = isUS ? evalAmountRaw : (evalAmountRaw / rate);
 
-          // 투자 원금 원화 환산
-          const totalCostKRW = isUS ? (h.totalCost * rate) : h.totalCost;
-          const unrealizedPnlKRW = evalAmountKRW - totalCostKRW;
+          const totalCostKRW = isUS ? (h.pureCashCost * rate) : h.pureCashCost;
+          const totalAcquisitionKRW = isUS ? (totalAcquisition * rate) : totalAcquisition;
           const realizedPnlKRW = isUS ? (h.realizedPnl * rate) : h.realizedPnl;
 
-          const totalDiv = divMap[h.ticker] || 0;
-          const totalReturnKRW = unrealizedPnlKRW + realizedPnlKRW + totalDiv;
-          const returnRate = totalCostKRW > 0 ? ((totalReturnKRW / totalCostKRW) * 100).toFixed(2) : 0;
-          const yoc = totalCostKRW > 0 ? ((totalDiv / totalCostKRW) * 100).toFixed(2) : 0;
+          const totalDiv = divMap[norm] || divMap[raw] || 0;
+
+          const reinvestDividend = h.shares > 0 && h.reinvestShares > 0 
+            ? Math.round(totalDiv * (h.reinvestShares / h.shares))
+            : 0;
+
+          const capitalGainKRW = Math.round((evalAmountKRW - totalAcquisitionKRW) + realizedPnlKRW);
+          const capitalGainRate = totalAcquisitionKRW > 0 
+            ? Number(((capitalGainKRW / totalAcquisitionKRW) * 100).toFixed(2)) 
+            : 0;
+
+          const totalReturnKRW = Math.round((evalAmountKRW - totalCostKRW) + realizedPnlKRW + totalDiv);
+          const returnRate = totalCostKRW > 0 
+            ? Number(((totalReturnKRW / totalCostKRW) * 100).toFixed(2)) 
+            : 0;
+          
+          // 1) 원금 대비 누적 분배율(회수율)
+          const divYieldOnCost = totalCostKRW > 0 ? Number(((totalDiv / totalCostKRW) * 100).toFixed(2)) : 0;
+          
+          // 2) [요청 반영] 연분배율 대신 "두 항목 다 최근 분배율(월 %)"로 계산
+          const lastD = lastDivMap[norm] || lastDivMap[raw];
+          let recentRealYield = 0;
+          let recentMarketYield = 0;
+
+          if (lastD && h.shares > 0) {
+            let memoObj = {};
+            try { if (lastD.memo) memoObj = JSON.parse(lastD.memo); } catch (e) {}
+
+            const dps = Number(lastD.dividend_per_share) || (h.shares > 0 ? Math.round(Number(lastD.total_received) / h.shares) : 0);
+            const basePrice = memoObj.basePrice ? Number(memoObj.basePrice) : (closePrice > 0 ? closePrice : avgPrice);
+
+            // 최근 기준일 분배율 (월 %)
+            if (basePrice > 0 && dps > 0) {
+              recentMarketYield = Number(((dps / basePrice) * 100).toFixed(2));
+            }
+            // 최근 실질 분배율 (원금 평단가 대비 월 %)
+            if (avgPrice > 0 && dps > 0) {
+              recentRealYield = Number(((dps / avgPrice) * 100).toFixed(2));
+            }
+          }
+
+          const cashRatio = h.shares > 0 ? Math.round((h.cashShares / h.shares) * 100) : 100;
+          const reinvestRatio = h.shares > 0 ? (100 - cashRatio) : 0;
 
           return {
             ...h,
+            hasPrice,
             name: p.name || h.name,
             closePrice, prevClose, changePct,
+            cashShares: Math.round(h.cashShares),
+            reinvestShares: Math.round(h.reinvestShares),
+            cashRatio, reinvestRatio,
+            reinvestDividend,
+            capitalGainKRW,
+            capitalGainRate,
+            divYieldOnCost,
+            recentRealYield,
+            recentMarketYield,
             avgPrice: isUS ? Math.round(avgPrice * 100) / 100 : Math.round(avgPrice),
             evalAmountKRW: Math.round(evalAmountKRW),
             evalAmountUSD: Math.round(evalAmountUSD * 100) / 100,
             totalCostKRW: Math.round(totalCostKRW),
+            totalAcquisitionKRW: Math.round(totalAcquisitionKRW),
             totalDividend: Math.round(totalDiv),
-            totalReturn: Math.round(totalReturnKRW),
-            returnRate, yoc
+            totalReturn: totalReturnKRW,
+            returnRate
           };
         });
       });
 
-      // 총계 지표들
+      // 분배금 내역에 "그달 분배기준일" 및 "기준일 주가 기준 분배율"을 정확히 산출한 목록
+      const enrichedDividends = computed(() => {
+        const rate = exchangeRate.value || 1380;
+        const holdingMap = {};
+        holdings.value.forEach(h => {
+          holdingMap[h.ticker] = h;
+          holdingMap[h.rawTicker] = h;
+        });
+
+        return dividends.value.map(d => {
+          const rawT = (d.ticker || '').toUpperCase();
+          const norm = normalizeTicker(rawT);
+          const h = holdingMap[norm] || holdingMap[rawT];
+          const isUS = isUsTicker(rawT);
+
+          let parsedMemo = {};
+          try {
+            if (d.memo) parsedMemo = JSON.parse(d.memo);
+          } catch (e) {}
+
+          const recordDate = parsedMemo.recordDate || calculateRecordDate(d.pay_date);
+          const sharesUsed = Number(d.shares_held) > 0 ? Number(d.shares_held) : (h ? h.shares : 0);
+
+          let dps = Number(d.dividend_per_share) || 0;
+          if (dps <= 0 && sharesUsed > 0) {
+            const tot = Number(d.total_received) || 0;
+            if (isUS) {
+              dps = Number((tot / (sharesUsed * rate)).toFixed(3));
+            } else {
+              dps = Math.round(tot / sharesUsed);
+            }
+          }
+
+          const closeP = h ? h.closePrice : 0;
+          const avgP = h ? h.avgPrice : closeP;
+          const basePrice = parsedMemo.basePrice ? Number(parsedMemo.basePrice) : (closeP > 0 ? closeP : avgP);
+
+          const marketYieldMonth = (basePrice > 0 && dps > 0) 
+            ? Number(((dps / basePrice) * 100).toFixed(2)) 
+            : 0;
+          const marketYieldAnnual = Number((marketYieldMonth * 12).toFixed(1));
+
+          const realYieldMonth = (avgP > 0 && dps > 0) 
+            ? Number(((dps / avgP) * 100).toFixed(2)) 
+            : marketYieldMonth;
+          const realYieldAnnual = Number((realYieldMonth * 12).toFixed(1));
+
+          return {
+            ...d,
+            isUS,
+            sharesUsed,
+            dps,
+            recordDate,
+            basePrice,
+            avgP,
+            marketYieldMonth,
+            marketYieldAnnual,
+            realYieldMonth,
+            realYieldAnnual
+          };
+        });
+      });
+
+      // 전체 총계 지표들
       const totalEvalAmount = computed(() => holdings.value.reduce((acc, h) => acc + h.evalAmountKRW, 0));
       const totalInvested = computed(() => holdings.value.reduce((acc, h) => acc + h.totalCostKRW, 0));
+      const totalAcquisitionAll = computed(() => holdings.value.reduce((acc, h) => acc + h.totalAcquisitionKRW, 0));
+      
+      const totalCapitalGain = computed(() => holdings.value.reduce((acc, h) => acc + h.capitalGainKRW, 0));
+      const totalCapitalGainRate = computed(() => totalAcquisitionAll.value > 0 
+        ? Number(((totalCapitalGain.value / totalAcquisitionAll.value) * 100).toFixed(2)) 
+        : 0);
+
       const netTotalProfit = computed(() => holdings.value.reduce((acc, h) => acc + h.totalReturn, 0));
       const totalReturnRate = computed(() => totalInvested.value > 0 ? ((netTotalProfit.value / totalInvested.value) * 100).toFixed(2) : 0);
       
@@ -1087,33 +2139,13 @@
 
       const avgYOC = computed(() => totalInvested.value > 0 ? ((divSummary.value.totalReceived / totalInvested.value) * 100).toFixed(2) : 0);
 
-      // 분배금 사용처 요약
-      const divSummary = computed(() => {
-        let totalReceived = 0, reinvested = 0, withdrawn = 0;
-        dividends.value.forEach(d => {
-          const amt = Number(d.total_received);
-          totalReceived += amt;
-          if (d.status === 'REINVEST') reinvested += amt;
-          else if (d.status === 'WITHDRAW') withdrawn += amt;
-        });
-        const remainingCash = totalReceived - reinvested - withdrawn;
-        const reinvestRate = totalReceived > 0 ? Math.round((reinvested / totalReceived) * 100) : 0;
-        const cashRate = totalReceived > 0 ? Math.round((remainingCash / totalReceived) * 100) : 0;
-        const withdrawRate = totalReceived > 0 ? Math.round((withdrawn / totalReceived) * 100) : 0;
-
-        return { totalReceived, remainingCash, reinvested, withdrawn, reinvestRate, cashRate, withdrawRate };
-      });
-
-      // 통합 순자산 (주식평가액 + 남은 분배금 예수금)
       const totalNetAsset = computed(() => totalEvalAmount.value + Math.max(0, divSummary.value.remainingCash));
 
-      // 매매 원장 필터링
       const filteredTrades = computed(() => {
         if (tradeFilter.value === 'ALL') return transactions.value;
         return transactions.value.filter(tx => tx.trade_type === tradeFilter.value);
       });
 
-      // 이번 달 수령 분배금
       const thisMonthDividend = computed(() => {
         const currentYM = new Date().toISOString().slice(0, 7);
         return dividends.value
@@ -1121,29 +2153,89 @@
           .reduce((acc, d) => acc + Number(d.total_received), 0);
       });
 
-      // 월별 배당 차트 데이터 (최근 6개월)
-      const monthlyChartData = computed(() => {
-        const groups = {};
+      // 12개월 월별 분배금 수령 추이 (6개월씩 세로 2줄)
+      const months1to6 = computed(() => {
+        const yr = calendarYear.value;
+        const nowYM = new Date().toISOString().slice(0, 7);
+        const map = {};
         dividends.value.forEach(d => {
           if (!d.pay_date) return;
-          const ym = d.pay_date.slice(0, 7); // '2026-08'
-          groups[ym] = (groups[ym] || 0) + Number(d.total_received);
+          const [y, m] = d.pay_date.split('-');
+          if (Number(y) === yr) {
+            const mInt = Number(m);
+            if (mInt >= 1 && mInt <= 6) {
+              map[mInt] = (map[mInt] || 0) + Number(d.total_received);
+            }
+          }
         });
 
-        const sortedKeys = Object.keys(groups).sort().slice(-6);
-        const maxVal = Math.max(...Object.values(groups), monthlyGoal.value, 1);
+        const maxVal = max12MonthAmt.value || 1;
 
-        return sortedKeys.map(k => {
-          const [y, m] = k.split('-');
-          return {
-            month: `${y}년 ${m}월`,
-            amount: groups[k],
-            pct: Math.min(100, Math.round((groups[k] / maxVal) * 100))
-          };
-        });
+        const result = [];
+        for (let m = 1; m <= 6; m++) {
+          const ymStr = `${yr}-${String(m).padStart(2, '0')}`;
+          const amt = map[m] || 0;
+          result.push({
+            month: m,
+            name: `${m}월`,
+            amount: amt,
+            pct: amt > 0 ? Math.min(100, Math.max(12, Math.round((amt / maxVal) * 100))) : 4,
+            isCurrent: ymStr === nowYM
+          });
+        }
+        return result;
       });
 
-      // 은퇴 목표 계산기 수치
+      const months7to12 = computed(() => {
+        const yr = calendarYear.value;
+        const nowYM = new Date().toISOString().slice(0, 7);
+        const map = {};
+        dividends.value.forEach(d => {
+          if (!d.pay_date) return;
+          const [y, m] = d.pay_date.split('-');
+          if (Number(y) === yr) {
+            const mInt = Number(m);
+            if (mInt >= 7 && mInt <= 12) {
+              map[mInt] = (map[mInt] || 0) + Number(d.total_received);
+            }
+          }
+        });
+
+        const maxVal = max12MonthAmt.value || 1;
+
+        const result = [];
+        for (let m = 7; m <= 12; m++) {
+          const ymStr = `${yr}-${String(m).padStart(2, '0')}`;
+          const amt = map[m] || 0;
+          result.push({
+            month: m,
+            name: `${m}월`,
+            amount: amt,
+            pct: amt > 0 ? Math.min(100, Math.max(12, Math.round((amt / maxVal) * 100))) : 4,
+            isCurrent: ymStr === nowYM
+          });
+        }
+        return result;
+      });
+
+      const max12MonthAmt = computed(() => {
+        const yr = calendarYear.value;
+        let maxA = monthlyGoal.value || 500000;
+        dividends.value.forEach(d => {
+          if (!d.pay_date) return;
+          const [y] = d.pay_date.split('-');
+          if (Number(y) === yr) {
+            const amt = Number(d.total_received);
+            if (amt > maxA) maxA = amt;
+          }
+        });
+        return maxA;
+      });
+
+      const halfYear1Total = computed(() => months1to6.value.reduce((acc, m) => acc + m.amount, 0));
+      const halfYear2Total = computed(() => months7to12.value.reduce((acc, m) => acc + m.amount, 0));
+      const calendarYearTotal = computed(() => halfYear1Total.value + halfYear2Total.value);
+
       const requiredTotalAsset = computed(() => {
         const y = (calcAnnualYield.value || 10) / 100;
         return Math.round((calcTargetMonthly.value * 12) / y);
@@ -1151,14 +2243,12 @@
 
       const additionalNeeded = computed(() => Math.max(0, requiredTotalAsset.value - totalInvested.value));
 
-      // 복리 시뮬레이션 수치
       const simulationResults = computed(() => {
         const p0 = totalInvested.value || 10000000;
         const r = (calcAnnualYield.value || 10) / 100;
         const years = [1, 3, 5, 10];
 
         return years.map(yr => {
-          // 월복리 공식: A = P * (1 + r/12)^(12*yr)
           const asset = Math.round(p0 * Math.pow(1 + (r / 12), 12 * yr));
           const monthlyDiv = Math.round((asset * r) / 12);
           return { year: yr, asset, monthlyDiv };
@@ -1173,13 +2263,15 @@
       });
 
       return {
-        loading, saving, toastMessage, toastType, modalError, currentTab, showModal, formType,
-        transactions, dividends, dailyPrices, exchangeRate, tradeFilter, monthlyGoal, calcTargetMonthly, calcAnnualYield,
-        tradeForm, divForm, tickerSuggestions, activeSuggestionForm,
-        openModal, loadAllData, isUsTicker, getStockName, onTickerInput, selectSuggestion, fetchOfficialName,
-        submitTrade, deleteTransaction, submitDividend, deleteDividend, updateDivStatus, changeMonthlyGoal,
-        holdings, totalEvalAmount, totalInvested, netTotalProfit, totalReturnRate, totalTodayChange, avgYOC,
-        divSummary, totalNetAsset, filteredTrades, thisMonthDividend, monthlyChartData,
+        loading, saving, toastMessage, toastType, modalError, currentTab, showModal, formType, isEditMode, editingId,
+        transactions, dividends, enrichedDividends, dailyPrices, exchangeRate, tradeFilter, monthlyGoal, calcTargetMonthly, calcAnnualYield,
+        calendarYear, months1to6, months7to12, halfYear1Total, halfYear2Total, calendarYearTotal,
+        tradeForm, divForm, tickerSuggestions, activeSuggestionForm, maxAffordableShares, isTradeCostExceeded,
+        calcMaxSharesFor, calcMaxCostFor, calcUnitCost, formatNumShort, quickReinvest, getHoldingShares, onPayDateChange, onDpsInput, onTotalReceivedInput,
+        openNewModal, openEditDividend, openEditTrade, loadAllData, isUsTicker, getStockName, onTickerInput, selectSuggestion, fetchOfficialName,
+        submitTrade, deleteTransaction, submitDividend, deleteDividend, toggleWithdraw, changeMonthlyGoal, normalizeTicker, editPrice,
+        holdings, totalEvalAmount, totalInvested, totalCapitalGain, totalCapitalGainRate, netTotalProfit, totalReturnRate, totalTodayChange, avgYOC,
+        divSummary, totalNetAsset, filteredTrades, thisMonthDividend,
         requiredTotalAsset, additionalNeeded, simulationResults, formatNum
       };
     }
