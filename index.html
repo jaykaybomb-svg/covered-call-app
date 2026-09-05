@@ -3,576 +3,1176 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>내 커버드콜 자산관리</title>
+  <title>커버드콜 자산관리 v2.0</title>
   
+  <!-- iOS Safari PWA 전체화면 설정 -->
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="커버드콜">
   <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/2422/2422796.png">
 
+  <!-- Tailwind CSS & FontAwesome Icons -->
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <!-- Vue 3 & Supabase JS -->
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <style>
-    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     body {
-      background-color: #030712;
-      color: #f3f4f6;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      -webkit-tap-highlight-color: transparent;
       padding-top: env(safe-area-inset-top);
-      padding-bottom: 100px;
+      padding-bottom: env(safe-area-inset-bottom);
+      font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", Roboto, sans-serif;
     }
-    .up-red { color: #f87171; }
-    .down-blue { color: #60a5fa; }
+    /* 커스텀 스크롤바 숨김 (모바일 앱 느낌 강화) */
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
   </style>
 </head>
-<body class="min-h-screen">
+<body class="bg-slate-950 text-slate-100 min-h-screen pb-28 select-none">
 
-<div class="max-w-md mx-auto px-4 pt-4">
+<div id="app" class="max-w-md mx-auto px-4 pt-3">
 
-  <!-- 1. 최상단 헤더 -->
-  <header class="flex justify-between items-center py-2 mb-3">
-    <div>
-      <h1 class="text-xl font-black text-white flex items-center gap-2">
-        <i class="fa-solid fa-chart-pie text-emerald-400"></i> 커버드콜 트래커
-      </h1>
-      <p class="text-xs text-slate-400">장마감 공식 종가 자동 연동</p>
+  <!-- 1. 알림 토스트 (메시지 배너) -->
+  <transition enter-active-class="transition duration-200 ease-out"
+              enter-from-class="transform -translate-y-4 opacity-0"
+              enter-to-class="transform translate-y-0 opacity-100"
+              leave-active-class="transition duration-150 ease-in"
+              leave-from-class="opacity-100" leave-to-class="opacity-0">
+    <div v-if="toastMessage" class="fixed top-5 left-4 right-4 max-w-md mx-auto z-50 p-3 rounded-2xl text-xs font-bold shadow-2xl flex items-center justify-between"
+         :class="toastType === 'success' ? 'bg-emerald-500 text-slate-950' : 'bg-red-500 text-white'">
+      <span><i :class="toastType === 'success' ? 'fa-solid fa-circle-check' : 'fa-solid fa-triangle-exclamation'" class="mr-2"></i>{{ toastMessage }}</span>
+      <button @click="toastMessage = ''" class="text-sm font-black ml-2 px-1">✕</button>
     </div>
-    <div class="flex gap-1.5">
-      <button onclick="fetchLatestPrices()" class="text-[11px] bg-slate-800 text-slate-300 px-2.5 py-1.5 rounded-lg border border-slate-700">
-        🔄 시세 갱신
+  </transition>
+
+  <!-- 2. 헤더 & 실시간 환율 바 -->
+  <header class="py-2 mb-3">
+    <div class="flex justify-between items-center">
+      <div>
+        <h1 class="text-xl font-black tracking-tight text-white flex items-center gap-2">
+          <i class="fa-solid fa-chart-pie text-emerald-400"></i> 커버드콜 트래커
+        </h1>
+        <p class="text-[11px] text-slate-400">배당락 방어 실질 총수익 & 복리 관리</p>
+      </div>
+      <button @click="loadAllData" class="text-xs bg-slate-900 hover:bg-slate-800 text-slate-300 px-3 py-1.5 rounded-full flex items-center gap-1.5 border border-slate-800 shadow-sm active:scale-95 transition-all">
+        <i class="fa-solid fa-rotate text-emerald-400" :class="{'fa-spin': loading}"></i> 갱신
       </button>
-      <button onclick="openKeyModal()" class="text-[11px] bg-slate-800 text-slate-300 px-2.5 py-1.5 rounded-lg border border-slate-700">
-        ⚙️ DB 설정
-      </button>
+    </div>
+
+    <!-- 환율 연동 정보 배지 -->
+    <div class="flex items-center justify-between bg-slate-900/80 border border-slate-800/90 rounded-xl px-3 py-1.5 mt-2.5 text-[11px]">
+      <div class="flex items-center gap-2 text-slate-300">
+        <span class="text-base">🇺🇸/🇰🇷</span>
+        <span>기준환율: <b class="text-amber-300 font-bold">₩{{ formatNum(exchangeRate) }}</b> / USD</span>
+      </div>
+      <span class="text-[10px] text-slate-400 flex items-center gap-1">
+        <i class="fa-solid fa-circle text-[7px] text-emerald-400"></i> 실시간 반영
+      </span>
     </div>
   </header>
 
-  <!-- 2. 총 자산 KPI 요약 카드 -->
-  <div class="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 border border-slate-700/80 rounded-2xl p-4 shadow-xl mb-4">
+  <!-- 3. 총 자산 KPI 요약 카드 (통합 NAV) -->
+  <div class="bg-gradient-to-br from-slate-900 via-slate-850 to-slate-900 border border-slate-700/80 rounded-2xl p-4 shadow-xl mb-4">
     <div class="flex justify-between items-start mb-1">
-      <span class="text-xs font-semibold text-slate-400">총 평가 자산</span>
-      <span id="kpi-today-tag" class="text-[11px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 font-bold">
-        시세 확인 중...
+      <span class="text-xs font-bold text-slate-400">통합 총 순자산 (주식+예수금)</span>
+      <span class="text-[11px] px-2 py-0.5 rounded-full font-bold" 
+            :class="totalTodayChange >= 0 ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'">
+        전일비: {{ totalTodayChange >= 0 ? '▲ +' : '▼ ' }}{{ formatNum(totalTodayChange) }}원
       </span>
     </div>
-    <div class="text-3xl font-extrabold text-white tracking-tight mb-3" id="kpi-total-eval">
-      ₩ 0
-    </div>
-
-    <div class="grid grid-cols-2 gap-2 pt-3 border-t border-slate-700/60 text-xs">
-      <div>
-        <span class="text-slate-400">총 투자원금</span>
-        <div class="font-bold text-slate-200 mt-0.5" id="kpi-total-invested">₩ 0</div>
-      </div>
-      <div>
-        <span class="text-slate-400">실질 총손익 (배당포함)</span>
-        <div class="font-bold mt-0.5 text-slate-200" id="kpi-total-profit">₩ 0 (0%)</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- 3. 분배금 캐시플로우 요약 카드 -->
-  <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 mb-4">
-    <div class="flex justify-between items-center mb-2">
-      <h2 class="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-        <i class="fa-solid fa-coins text-amber-400"></i> 분배금 캐시플로우
-      </h2>
-      <span class="text-xs font-bold text-emerald-400" id="kpi-yoc">원금대비 YOC: 연 0%</span>
-    </div>
-
-    <div class="grid grid-cols-3 gap-2 bg-slate-950/60 p-2.5 rounded-xl text-center mb-2.5 border border-slate-800/80 text-xs">
-      <div>
-        <p class="text-[10px] text-slate-400">총 수령 분배금</p>
-        <p class="font-black text-amber-300 mt-0.5" id="kpi-div-total">₩0</p>
-      </div>
-      <div>
-        <p class="text-[10px] text-slate-400">남은 예수금</p>
-        <p class="font-black text-cyan-300 mt-0.5" id="kpi-div-remain">₩0</p>
-      </div>
-      <div>
-        <p class="text-[10px] text-slate-400">재투자 복리율</p>
-        <p class="font-black text-emerald-400 mt-0.5" id="kpi-div-reinvest-rate">0%</p>
-      </div>
-    </div>
-    <div class="flex justify-between text-[10px] text-slate-400">
-      <span>분배금 흐름 상태</span>
-      <span id="kpi-div-breakdown">재투자 0% | 예수금 0% | 인출 0%</span>
-    </div>
-  </div>
-
-  <!-- 4. 메인 3대 탭 메뉴 -->
-  <div class="flex border-b border-slate-800 mb-4 text-xs font-bold">
-    <button onclick="switchTab('holdings')" id="tab-btn-holdings" class="flex-1 py-2.5 text-center border-b-2 border-emerald-400 text-emerald-400">
-      📌 보유 주식 잔고
-    </button>
-    <button onclick="switchTab('history')" id="tab-btn-history" class="flex-1 py-2.5 text-center border-b-2 border-transparent text-slate-400">
-      📜 내가 산 주식 내역 (<span id="tx-count">0</span>)
-    </button>
-    <button onclick="switchTab('dividends')" id="tab-btn-dividends" class="flex-1 py-2.5 text-center border-b-2 border-transparent text-slate-400">
-      💰 분배금 관리 (<span id="div-count">0</span>)
-    </button>
-  </div>
-
-  <!-- 5-A. 탭 1: 보유 주식 잔고 화면 -->
-  <div id="view-holdings" class="space-y-3"></div>
-
-  <!-- 5-B. 탭 2: 내가 사놓은 주식들 내역 (장부) -->
-  <div id="view-history" class="space-y-2.5" style="display:none;">
-    <div class="bg-slate-900/60 p-3 rounded-xl border border-slate-800 text-xs text-slate-400 flex justify-between items-center">
-      <span>내가 매수/매도한 모든 거래 기록입니다.</span>
-      <button onclick="clearAllData()" class="text-red-400 hover:underline text-[11px]">전체 비우기</button>
-    </div>
-    <div id="history-list" class="space-y-2"></div>
-  </div>
-
-  <!-- 5-C. 탭 3: 분배금 관리 화면 -->
-  <div id="view-dividends" class="space-y-2.5" style="display:none;">
-    <div id="dividend-list" class="space-y-2"></div>
-  </div>
-
-  <!-- 6. 하단 고정 플로팅 버튼 -->
-  <div class="fixed bottom-5 left-0 right-0 max-w-md mx-auto px-4 z-40">
-    <button onclick="openInputModal()" class="w-full bg-emerald-500 active:bg-emerald-600 text-slate-950 font-black py-3.5 rounded-2xl shadow-2xl flex items-center justify-center gap-2 text-sm">
-      <i class="fa-solid fa-circle-plus text-base"></i> 내가 산 주식 / 분배금 입력하기
-    </button>
-  </div>
-
-</div>
-
-<!-- 모달 1: 거래 / 분배금 입력 창 -->
-<div id="input-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 items-end sm:items-center justify-center p-4" style="display:none;">
-  <div class="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-md p-5 text-white max-h-[90vh] overflow-y-auto">
-    <div class="flex justify-between items-center mb-3">
-      <h3 class="text-base font-bold text-white flex items-center gap-2">
-        <i class="fa-solid fa-pen-to-square text-emerald-400"></i> 내역 등록
-      </h3>
-      <button onclick="closeModal('input-modal')" class="text-slate-400 hover:text-white text-xl p-1">✕</button>
-    </div>
-
-    <!-- 모달 탭 -->
-    <div class="flex bg-slate-950 rounded-xl p-1 mb-4 text-xs font-bold">
-      <button type="button" onclick="setModalTab('TRADE')" id="mtab-trade" class="flex-1 py-2 rounded-lg bg-slate-800 text-white">매수 / 매도</button>
-      <button type="button" onclick="setModalTab('DIV')" id="mtab-div" class="flex-1 py-2 rounded-lg text-slate-400">분배금(배당금)</button>
-    </div>
-
-    <!-- 매수/매도 폼 -->
-    <div id="form-trade" class="space-y-3 text-xs">
-      <div>
-        <label class="block text-slate-400 mb-1">거래 구분</label>
-        <select id="trade-type" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-white">
-          <option value="BUY">매수 / 추가매수 (평단가 자동 계산)</option>
-          <option value="SELL">매도 (실현손익 분리)</option>
-        </select>
-      </div>
-      <div class="grid grid-cols-2 gap-2">
-        <div>
-          <label class="block text-slate-400 mb-1">티커/종목코드 *</label>
-          <input type="text" id="trade-ticker" placeholder="예: 441680" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-white uppercase">
-        </div>
-        <div>
-          <label class="block text-slate-400 mb-1">종목명(선택)</label>
-          <input type="text" id="trade-name" placeholder="예: TIGER 미국나스닥100" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-white">
-        </div>
-      </div>
-      <div class="grid grid-cols-2 gap-2">
-        <div>
-          <label class="block text-slate-400 mb-1">수량(주) *</label>
-          <input type="number" id="trade-shares" placeholder="예: 100" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-white">
-        </div>
-        <div>
-          <label class="block text-slate-400 mb-1">매수가/단가(원) *</label>
-          <input type="number" id="trade-price" placeholder="예: 10200" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-white">
-        </div>
-      </div>
-      <div>
-        <label class="block text-slate-400 mb-1">거래일자</label>
-        <input type="date" id="trade-date" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-white">
-      </div>
-      <button type="button" onclick="saveTrade()" class="w-full bg-emerald-500 hover:bg-emerald-400 font-black py-3.5 rounded-xl text-slate-950 text-sm mt-3">
-        등록하고 즉시 계산하기
-      </button>
-    </div>
-
-    <!-- 분배금 폼 -->
-    <div id="form-div" class="space-y-3 text-xs" style="display:none;">
-      <div>
-        <label class="block text-slate-400 mb-1">종목 티커/코드 *</label>
-        <input type="text" id="div-ticker" placeholder="예: 441680" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-white uppercase">
-      </div>
-      <div class="grid grid-cols-2 gap-2">
-        <div>
-          <label class="block text-slate-400 mb-1">실수령 분배금(원) *</label>
-          <input type="number" id="div-amount" placeholder="예: 30000" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-white">
-        </div>
-        <div>
-          <label class="block text-slate-400 mb-1">지급일자</label>
-          <input type="date" id="div-date" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-white">
-        </div>
-      </div>
-      <div>
-        <label class="block text-slate-400 mb-1">분배금 초기 처리 상태</label>
-        <select id="div-status" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-white">
-          <option value="CASH">예수금 보관 (남은 분배금)</option>
-          <option value="REINVEST">주식 재매수에 사용</option>
-          <option value="WITHDRAW">생활비 등으로 외부 인출</option>
-        </select>
-      </div>
-      <button type="button" onclick="saveDividend()" class="w-full bg-amber-400 hover:bg-amber-300 font-black py-3.5 rounded-xl text-slate-950 text-sm mt-3">
-        분배금 내역 저장
-      </button>
-    </div>
-  </div>
-</div>
-
-<!-- 모달 2: Supabase 설정 창 -->
-<div id="key-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 items-center justify-center p-4" style="display:none;">
-  <div class="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-md p-5 text-white">
-    <h3 class="text-base font-bold mb-2">⚙️ Supabase 클라우드 DB 연동</h3>
-    <p class="text-xs text-slate-400 mb-3">
-      아래에 <b>anon public key</b>를 붙여넣고 저장을 누르면, 깃허브가 모아둔 매일의 공식 장마감 종가가 자동으로 연동됩니다.
-    </p>
-    <div class="space-y-3 text-xs">
-      <div>
-        <label class="block text-slate-400 mb-1">anon public key</label>
-        <textarea id="db-key-input" rows="3" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-xs text-white" placeholder="eyJhbGciOi..."></textarea>
-      </div>
-      <div class="flex gap-2 pt-2">
-        <button onclick="saveKey()" class="flex-1 bg-emerald-500 font-bold py-2.5 rounded-xl text-slate-950">저장 및 시세 연동</button>
-        <button onclick="closeModal('key-modal')" class="px-4 bg-slate-800 text-slate-300 rounded-xl">닫기</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<script>
-  const SUPABASE_URL = "https://wlavetbnglzrpkeyesqv.supabase.co";
-
-  let transactions = JSON.parse(localStorage.getItem("TX_DATA")) || [];
-  let dividends = JSON.parse(localStorage.getItem("DIV_DATA")) || [];
-  let dailyPrices = JSON.parse(localStorage.getItem("DAILY_PRICES")) || {};
-  let currentTab = 'holdings';
-
-  document.getElementById('trade-date').value = new Date().toISOString().split('T')[0];
-  document.getElementById('div-date').value = new Date().toISOString().split('T')[0];
-
-  function formatNum(n) { return Math.round(Number(n) || 0).toLocaleString(); }
-
-  function switchTab(tab) {
-    currentTab = tab;
-    ['holdings', 'history', 'dividends'].forEach(t => {
-      document.getElementById('view-' + t).style.display = (t === tab) ? 'block' : 'none';
-      const btn = document.getElementById('tab-btn-' + t);
-      btn.className = (t === tab) ? 'flex-1 py-2.5 text-center border-b-2 border-emerald-400 text-emerald-400' : 'flex-1 py-2.5 text-center border-b-2 border-transparent text-slate-400';
-    });
-  }
-
-  function openInputModal() { document.getElementById('input-modal').style.display = 'flex'; }
-  function openKeyModal() { 
-    document.getElementById('db-key-input').value = localStorage.getItem("SP_KEY") || "";
-    document.getElementById('key-modal').style.display = 'flex'; 
-  }
-  function closeModal(id) { document.getElementById(id).style.display = 'none'; }
-  function setModalTab(type) {
-    document.getElementById('form-trade').style.display = (type === 'TRADE') ? 'block' : 'none';
-    document.getElementById('form-div').style.display = (type === 'DIV') ? 'block' : 'none';
-    document.getElementById('mtab-trade').className = (type === 'TRADE') ? 'flex-1 py-2 rounded-lg bg-slate-800 text-white' : 'flex-1 py-2 rounded-lg text-slate-400';
-    document.getElementById('mtab-div').className = (type === 'DIV') ? 'flex-1 py-2 rounded-lg bg-slate-800 text-amber-300' : 'flex-1 py-2 rounded-lg text-slate-400';
-  }
-
-  // ★ Supabase에서 깃허브가 수집한 최신 종가 가져오기
-  async function fetchLatestPrices() {
-    const key = localStorage.getItem("SP_KEY");
-    if (!key) {
-      alert("먼저 [⚙️ DB 설정]에서 anon key를 입력해 주세요.");
-      openKeyModal();
-      return;
-    }
-    try {
-      const res = await fetch(SUPABASE_URL + '/rest/v1/daily_prices?select=*', {
-        headers: { 'apikey': key, 'Authorization': 'Bearer ' + key }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        data.forEach(p => { dailyPrices[p.ticker] = p; });
-        localStorage.setItem("DAILY_PRICES", JSON.stringify(dailyPrices));
-        calculateAndRender();
-        alert("✅ 최신 장마감 종가를 성공적으로 불러왔습니다!");
-      } else {
-        alert("시세를 가져오지 못했습니다. DB 설정을 확인하세요.");
-      }
-    } catch(e) {
-      console.warn("시세 수집 오류:", e);
-    }
-  }
-
-  function saveTrade() {
-    const ticker = document.getElementById('trade-ticker').value.trim().toUpperCase();
-    const name = document.getElementById('trade-name').value.trim() || ticker;
-    const shares = Number(document.getElementById('trade-shares').value);
-    const price = Number(document.getElementById('trade-price').value);
-    const date = document.getElementById('trade-date').value;
-    const type = document.getElementById('trade-type').value;
-
-    if (!ticker || !shares || !price) { alert("티커, 수량, 매수가를 모두 입력하세요."); return; }
-
-    const newTx = { id: Date.now(), trade_type: type, ticker, name, shares, price, trade_date: date };
-    transactions.push(newTx);
-    localStorage.setItem("TX_DATA", JSON.stringify(transactions));
     
-    syncToSupabase('transactions', newTx);
-    alert("✅ 매수/거래가 등록되었습니다!");
-    closeModal('input-modal');
-    document.getElementById('trade-ticker').value = '';
-    document.getElementById('trade-name').value = '';
-    document.getElementById('trade-shares').value = '';
-    document.getElementById('trade-price').value = '';
-    calculateAndRender();
-  }
+    <div class="text-3xl font-black text-white tracking-tight mb-2">
+      ₩ {{ formatNum(totalNetAsset) }}
+    </div>
 
-  function deleteTrade(id) {
-    if (!confirm("이 거래 내역을 삭제하시겠습니까?")) return;
-    transactions = transactions.filter(t => t.id !== id);
-    localStorage.setItem("TX_DATA", JSON.stringify(transactions));
-    calculateAndRender();
-  }
+    <div class="text-[11px] text-slate-400 flex gap-3 mb-3 pb-2.5 border-b border-slate-800/80">
+      <span>주식 평가액: <b class="text-slate-200 font-semibold">₩{{ formatNum(totalEvalAmount) }}</b></span>
+      <span>미사용 예수금: <b class="text-cyan-300 font-semibold">₩{{ formatNum(divSummary.remainingCash) }}</b></span>
+    </div>
 
-  function saveDividend() {
-    const ticker = document.getElementById('div-ticker').value.trim().toUpperCase();
-    const total_received = Number(document.getElementById('div-amount').value);
-    const pay_date = document.getElementById('div-date').value;
-    const status = document.getElementById('div-status').value;
+    <div class="grid grid-cols-2 gap-2 text-xs">
+      <div class="bg-slate-950/50 p-2.5 rounded-xl border border-slate-800/70">
+        <span class="text-[11px] text-slate-400 block mb-0.5">총 투자 원금</span>
+        <span class="font-bold text-slate-200">₩ {{ formatNum(totalInvested) }}</span>
+      </div>
+      <div class="bg-slate-950/50 p-2.5 rounded-xl border border-slate-800/70">
+        <span class="text-[11px] text-slate-400 block mb-0.5">실질 총손익 (배당+실현)</span>
+        <span class="font-bold" :class="netTotalProfit >= 0 ? 'text-red-400' : 'text-blue-400'">
+          {{ netTotalProfit >= 0 ? '+' : '' }}{{ formatNum(netTotalProfit) }}원
+          <span class="text-[10px]">({{ totalReturnRate }}%)</span>
+        </span>
+      </div>
+    </div>
+  </div>
 
-    if (!ticker || !total_received) { alert("티커와 분배금 금액을 입력하세요."); return; }
+  <!-- 4. 네비게이션 탭 바 (수평 스크롤 지원) -->
+  <div class="flex bg-slate-900/90 border border-slate-800 p-1 rounded-2xl mb-4 text-xs font-bold overflow-x-auto no-scrollbar">
+    <button @click="currentTab = 'holdings'" 
+            class="flex-shrink-0 px-3.5 py-2 rounded-xl transition-all"
+            :class="currentTab === 'holdings' ? 'bg-emerald-500 text-slate-950 shadow' : 'text-slate-400 hover:text-slate-200'">
+      📌 보유 종목 ({{ holdings.length }})
+    </button>
+    <button @click="currentTab = 'calendar'" 
+            class="flex-shrink-0 px-3.5 py-2 rounded-xl transition-all"
+            :class="currentTab === 'calendar' ? 'bg-emerald-500 text-slate-950 shadow' : 'text-slate-400 hover:text-slate-200'">
+      📊 배당 캘린더
+    </button>
+    <button @click="currentTab = 'trades'" 
+            class="flex-shrink-0 px-3.5 py-2 rounded-xl transition-all"
+            :class="currentTab === 'trades' ? 'bg-emerald-500 text-slate-950 shadow' : 'text-slate-400 hover:text-slate-200'">
+      📜 매매 원장 ({{ transactions.length }})
+    </button>
+    <button @click="currentTab = 'dividends'" 
+            class="flex-shrink-0 px-3.5 py-2 rounded-xl transition-all"
+            :class="currentTab === 'dividends' ? 'bg-emerald-500 text-slate-950 shadow' : 'text-slate-400 hover:text-slate-200'">
+      💰 분배금 내역 ({{ dividends.length }})
+    </button>
+    <button @click="currentTab = 'simulator'" 
+            class="flex-shrink-0 px-3.5 py-2 rounded-xl transition-all"
+            :class="currentTab === 'simulator' ? 'bg-emerald-500 text-slate-950 shadow' : 'text-slate-400 hover:text-slate-200'">
+      🚀 복리·목표
+    </button>
+  </div>
 
-    const newDiv = { id: Date.now(), ticker, total_received, pay_date, status };
-    dividends.push(newDiv);
-    localStorage.setItem("DIV_DATA", JSON.stringify(dividends));
+  <!-- ════════════════════════════════════════════════════════════════ -->
+  <!-- 탭 1: 보유 종목 리스트 (Holdings) -->
+  <!-- ════════════════════════════════════════════════════════════════ -->
+  <div v-if="currentTab === 'holdings'" class="space-y-3">
+    <!-- 분배금 라이프사이클 미니 요약 바 -->
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-3.5">
+      <div class="flex justify-between items-center mb-2">
+        <span class="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+          <i class="fa-solid fa-coins text-amber-400"></i> 분배금 누적 수령: <span class="text-amber-300">₩{{ formatNum(divSummary.totalReceived) }}</span>
+        </span>
+        <span class="text-xs font-bold text-emerald-400">평균 YOC: 연 {{ avgYOC }}%</span>
+      </div>
+      <div class="flex justify-between text-[10px] text-slate-400 mb-1">
+        <span>재투자 {{ divSummary.reinvestRate }}%</span>
+        <span>미사용 예수금 {{ divSummary.cashRate }}% (₩{{ formatNum(divSummary.remainingCash) }})</span>
+        <span>외부인출 {{ divSummary.withdrawRate }}%</span>
+      </div>
+      <div class="w-full h-2 bg-slate-950 rounded-full overflow-hidden flex border border-slate-800">
+        <div :style="{ width: divSummary.reinvestRate + '%' }" class="bg-emerald-500"></div>
+        <div :style="{ width: divSummary.cashRate + '%' }" class="bg-cyan-500"></div>
+        <div :style="{ width: divSummary.withdrawRate + '%' }" class="bg-slate-600"></div>
+      </div>
+    </div>
 
-    syncToSupabase('dividends', newDiv);
-    alert("✅ 분배금이 저장되었습니다!");
-    closeModal('input-modal');
-    document.getElementById('div-ticker').value = '';
-    document.getElementById('div-amount').value = '';
-    calculateAndRender();
-  }
+    <!-- 종목 카드들 -->
+    <div v-if="holdings.length === 0" class="text-center py-12 text-slate-500 text-xs bg-slate-900/40 rounded-2xl border border-dashed border-slate-800">
+      <i class="fa-solid fa-folder-open text-3xl mb-2 text-slate-600 block"></i>
+      등록된 보유 종목이 없습니다.<br>하단의 <b>[➕ 거래 / 분배금 입력하기]</b> 버튼을 눌러 매수를 기록하세요.
+    </div>
 
-  function changeDivStatus(id, newStatus) {
-    dividends = dividends.map(d => d.id === id ? { ...d, status: newStatus } : d);
-    localStorage.setItem("DIV_DATA", JSON.stringify(dividends));
-    calculateAndRender();
-  }
+    <div v-for="item in holdings" :key="item.ticker" class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-md">
+      <div class="flex justify-between items-start mb-2">
+        <div>
+          <div class="flex items-center gap-1.5">
+            <span class="text-xs">{{ item.market === 'US' ? '🇺🇸' : '🇰🇷' }}</span>
+            <h3 class="text-sm font-black text-white">{{ item.name }}</h3>
+          </div>
+          <span class="text-[11px] text-slate-400 mt-0.5 block">{{ item.ticker }} · <b>{{ item.shares }}</b>주 보유</span>
+        </div>
+        <div class="text-right">
+          <div class="text-sm font-extrabold text-white">
+            {{ item.market === 'US' ? '$' + item.closePrice : '₩' + formatNum(item.closePrice) }}
+          </div>
+          <div class="text-[11px] font-bold" :class="item.changePct >= 0 ? 'text-red-400' : 'text-blue-400'">
+            {{ item.changePct >= 0 ? '▲ +' : '▼ ' }}{{ item.changePct }}%
+          </div>
+        </div>
+      </div>
 
-  function clearAllData() {
-    if (!confirm("모든 거래 기록을 싹 비우시겠습니까?")) return;
-    transactions = [];
-    dividends = [];
-    localStorage.removeItem("TX_DATA");
-    localStorage.removeItem("DIV_DATA");
-    calculateAndRender();
-  }
+      <!-- 상세 지표 그리드 -->
+      <div class="grid grid-cols-2 gap-2 bg-slate-950/60 p-2.5 rounded-xl text-[11px] my-2.5 border border-slate-800/80">
+        <div>
+          <span class="text-slate-400">평균 단가:</span>
+          <b class="text-slate-200 block">{{ item.market === 'US' ? '$' + formatNum(item.avgPrice) : '₩' + formatNum(item.avgPrice) }}</b>
+        </div>
+        <div>
+          <span class="text-slate-400">평가 금액:</span>
+          <b class="text-slate-200 block">₩{{ formatNum(item.evalAmountKRW) }}</b>
+          <span v-if="item.market === 'US'" class="text-[9px] text-slate-400 font-normal">(${{ formatNum(item.evalAmountUSD) }})</span>
+        </div>
+        <div>
+          <span class="text-slate-400">누적 수령 분배금:</span>
+          <b class="text-amber-400 block">₩{{ formatNum(item.totalDividend) }}</b>
+        </div>
+        <div>
+          <span class="text-slate-400">원금대비 배당률(YOC):</span>
+          <b class="text-emerald-400 block">연 {{ item.yoc }}%</b>
+        </div>
+      </div>
 
-  function calculateAndRender() {
-    document.getElementById('tx-count').innerText = transactions.length;
-    document.getElementById('div-count').innerText = dividends.length;
+      <!-- 실질 총수익률 표시 -->
+      <div class="flex justify-between items-center text-xs pt-2 border-t border-slate-800/80">
+        <span class="text-slate-400 text-[11px]">배당포함 실질 총수익</span>
+        <span class="font-extrabold" :class="item.totalReturn >= 0 ? 'text-red-400' : 'text-blue-400'">
+          {{ item.totalReturn >= 0 ? '+' : '' }}{{ formatNum(item.totalReturn) }}원 ({{ item.returnRate }}%)
+        </span>
+      </div>
+    </div>
+  </div>
 
-    const map = {};
-    transactions.forEach(tx => {
-      const t = tx.ticker.toUpperCase();
-      if (!map[t]) map[t] = { ticker: t, name: tx.name || t, shares: 0, totalCost: 0, realizedPnl: 0 };
-      if (tx.trade_type === 'BUY') {
-        map[t].shares += Number(tx.shares);
-        map[t].totalCost += (Number(tx.shares) * Number(tx.price));
-      } else if (tx.trade_type === 'SELL') {
-        const avg = map[t].shares > 0 ? (map[t].totalCost / map[t].shares) : 0;
-        const sellShares = Number(tx.shares);
-        map[t].realizedPnl += ((Number(tx.price) - avg) * sellShares);
-        map[t].shares -= sellShares;
-        map[t].totalCost -= (sellShares * avg);
-      }
-    });
+  <!-- ════════════════════════════════════════════════════════════════ -->
+  <!-- 탭 2: 월별 배당 캘린더 & 현금흐름 차트 (Calendar) -->
+  <!-- ════════════════════════════════════════════════════════════════ -->
+  <div v-if="currentTab === 'calendar'" class="space-y-4">
+    <!-- 월 목표 대비 달성률 카드 -->
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+      <div class="flex justify-between items-center mb-2">
+        <span class="text-xs font-bold text-slate-300">🎯 이번 달 분배금 달성률</span>
+        <span class="text-xs font-black text-amber-300">₩{{ formatNum(thisMonthDividend) }} / ₩{{ formatNum(monthlyGoal) }}</span>
+      </div>
+      <div class="w-full h-3 bg-slate-950 rounded-full overflow-hidden border border-slate-800 p-0.5">
+        <div class="h-full bg-gradient-to-r from-amber-500 to-emerald-400 rounded-full transition-all duration-500"
+             :style="{ width: Math.min(100, (thisMonthDividend / (monthlyGoal || 1)) * 100) + '%' }"></div>
+      </div>
+      <div class="flex justify-between items-center mt-2 text-[10px] text-slate-400">
+        <span>달성률: <b class="text-white">{{ ((thisMonthDividend / (monthlyGoal || 1)) * 100).toFixed(1) }}%</b></span>
+        <button @click="changeMonthlyGoal" class="underline text-slate-400 hover:text-emerald-400">목표금액 변경</button>
+      </div>
+    </div>
 
-    const divMap = {};
-    let totalReceived = 0, reinvested = 0, withdrawn = 0;
-    dividends.forEach(d => {
-      const t = d.ticker.toUpperCase();
-      const amt = Number(d.total_received) || 0;
-      divMap[t] = (divMap[t] || 0) + amt;
-      totalReceived += amt;
-      if (d.status === 'REINVEST') reinvested += amt;
-      else if (d.status === 'WITHDRAW') withdrawn += amt;
-    });
+    <!-- 월별 현금흐름 막대 차트 (CSS 기반) -->
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+      <h3 class="text-xs font-bold text-slate-300 mb-3 flex items-center gap-1.5">
+        <i class="fa-solid fa-chart-simple text-emerald-400"></i> 최근 월별 분배금 수령 추이
+      </h3>
 
-    const remainingCash = totalReceived - reinvested - withdrawn;
-    const reinvestRate = totalReceived > 0 ? Math.round((reinvested / totalReceived) * 100) : 0;
-    const cashRate = totalReceived > 0 ? Math.round((remainingCash / totalReceived) * 100) : 0;
-    const withdrawRate = totalReceived > 0 ? Math.round((withdrawn / totalReceived) * 100) : 0;
+      <div v-if="monthlyChartData.length === 0" class="text-center py-8 text-slate-500 text-xs">
+        아직 수령한 분배금 데이터가 없습니다.
+      </div>
 
-    let totalEval = 0, totalInvested = 0, totalNetReturn = 0, totalDayChange = 0;
-    const holdings = Object.values(map).filter(h => h.shares > 0).map(h => {
-      const p = dailyPrices[h.ticker] || {};
-      const closePrice = Number(p.close_price) || (h.totalCost / h.shares);
-      const prevClose = Number(p.prev_close) || closePrice;
-      const changePct = p.change_pct !== undefined ? p.change_pct : 0;
+      <div v-else class="space-y-2.5">
+        <div v-for="bar in monthlyChartData" :key="bar.month" class="text-xs">
+          <div class="flex justify-between text-[11px] mb-1">
+            <span class="text-slate-300 font-semibold">{{ bar.month }}</span>
+            <span class="font-bold text-amber-300">₩{{ formatNum(bar.amount) }}</span>
+          </div>
+          <div class="w-full h-3 bg-slate-950 rounded-full overflow-hidden border border-slate-800">
+            <div class="h-full bg-emerald-500 rounded-full transition-all"
+                 :style="{ width: bar.pct + '%' }"></div>
+          </div>
+        </div>
+      </div>
+    </div>
 
-      const avgPrice = h.totalCost / h.shares;
-      const evalAmount = h.shares * closePrice;
-      const unrealizedPnl = evalAmount - h.totalCost;
-      const divAmt = divMap[h.ticker] || 0;
-      const totalReturn = unrealizedPnl + h.realizedPnl + divAmt;
-      const returnRate = h.totalCost > 0 ? ((totalReturn / h.totalCost) * 100).toFixed(2) : 0;
-      const yoc = h.totalCost > 0 ? ((divAmt / h.totalCost) * 100).toFixed(2) : 0;
+    <!-- 배당 수령 일정 타임라인 -->
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+      <h3 class="text-xs font-bold text-slate-300 mb-3 flex items-center gap-1.5">
+        <i class="fa-solid fa-calendar-days text-cyan-400"></i> 배당 수령 상세 기록
+      </h3>
 
-      totalEval += evalAmount;
-      totalInvested += h.totalCost;
-      totalNetReturn += totalReturn;
-      totalDayChange += ((closePrice - prevClose) * h.shares);
+      <div v-if="dividends.length === 0" class="text-center py-6 text-slate-500 text-xs">
+        기록된 배당 내역이 없습니다.
+      </div>
 
-      return { ...h, name: p.name || h.name, closePrice, changePct, avgPrice, evalAmount, divAmt, totalReturn, returnRate, yoc };
-    });
+      <div v-else class="space-y-2">
+        <div v-for="d in dividends.slice(0, 15)" :key="d.id" class="flex justify-between items-center p-2.5 bg-slate-950/60 border border-slate-800/80 rounded-xl text-xs">
+          <div>
+            <div class="flex items-center gap-1.5">
+              <span class="font-bold text-white">{{ getStockName(d.ticker) }}</span>
+              <span class="text-[10px] text-slate-400">({{ d.ticker }})</span>
+            </div>
+            <span class="text-[10px] text-slate-400">{{ d.pay_date }}</span>
+          </div>
+          <div class="text-right">
+            <div class="font-black text-amber-300">₩{{ formatNum(d.total_received) }}</div>
+            <span class="text-[9px] px-1.5 py-0.5 rounded font-bold"
+                  :class="d.status === 'REINVEST' ? 'bg-emerald-950 text-emerald-300' : (d.status === 'CASH' ? 'bg-cyan-950 text-cyan-300' : 'bg-slate-800 text-slate-400')">
+              {{ d.status === 'REINVEST' ? '재매수' : (d.status === 'CASH' ? '예수금' : '인출') }}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 
-    document.getElementById('kpi-total-eval').innerText = "₩ " + formatNum(totalEval);
-    document.getElementById('kpi-total-invested').innerText = "₩ " + formatNum(totalInvested);
-    const overallRate = totalInvested > 0 ? ((totalNetReturn / totalInvested) * 100).toFixed(2) : 0;
-    const profitEl = document.getElementById('kpi-total-profit');
-    profitEl.innerText = (totalNetReturn >= 0 ? "+" : "") + formatNum(totalNetReturn) + "원 (" + overallRate + "%)";
-    profitEl.className = totalNetReturn >= 0 ? "font-bold mt-0.5 up-red" : "font-bold mt-0.5 down-blue";
+  <!-- ════════════════════════════════════════════════════════════════ -->
+  <!-- 탭 3: 매매 원장 전체 내역 (Trades History) -->
+  <!-- ════════════════════════════════════════════════════════════════ -->
+  <div v-if="currentTab === 'trades'" class="space-y-3">
+    <!-- 필터 버튼 바 -->
+    <div class="flex justify-between items-center bg-slate-900 p-2 rounded-xl border border-slate-800 text-xs">
+      <div class="flex gap-1">
+        <button @click="tradeFilter = 'ALL'" class="px-2.5 py-1 rounded-lg font-bold transition-all"
+                :class="tradeFilter === 'ALL' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400'">전체</button>
+        <button @click="tradeFilter = 'BUY'" class="px-2.5 py-1 rounded-lg font-bold transition-all"
+                :class="tradeFilter === 'BUY' ? 'bg-red-500/30 text-red-300 border border-red-500/50' : 'text-slate-400'">매수만</button>
+        <button @click="tradeFilter = 'SELL'" class="px-2.5 py-1 rounded-lg font-bold transition-all"
+                :class="tradeFilter === 'SELL' ? 'bg-blue-500/30 text-blue-300 border border-blue-500/50' : 'text-slate-400'">매도만</button>
+      </div>
+      <span class="text-[11px] text-slate-400">총 {{ filteredTrades.length }}건</span>
+    </div>
 
-    const dayChangeEl = document.getElementById('kpi-today-tag');
-    dayChangeEl.innerText = "오늘 장마감: " + (totalDayChange >= 0 ? "▲ +" : "▼ ") + formatNum(totalDayChange) + "원";
-    dayChangeEl.className = totalDayChange >= 0 ? "text-[11px] px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 font-bold" : "text-[11px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 font-bold";
+    <div v-if="filteredTrades.length === 0" class="text-center py-12 text-slate-500 text-xs bg-slate-900/40 rounded-2xl border border-dashed border-slate-800">
+      거래 내역이 없습니다.
+    </div>
 
-    document.getElementById('kpi-div-total').innerText = "₩" + formatNum(totalReceived);
-    document.getElementById('kpi-div-remain').innerText = "₩" + formatNum(remainingCash);
-    document.getElementById('kpi-div-reinvest-rate').innerText = reinvestRate + "%";
-    document.getElementById('kpi-yoc').innerText = "원금대비 YOC: 연 " + (totalInvested > 0 ? ((totalReceived / totalInvested) * 100).toFixed(2) : 0) + "%";
-    document.getElementById('kpi-div-breakdown').innerText = `재투자 ${reinvestRate}% | 예수금 ${cashRate}% | 인출 ${withdrawRate}%`;
+    <!-- 매매 거래 카드 목록 -->
+    <div v-for="tx in filteredTrades" :key="tx.id" class="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 shadow-md">
+      <div class="flex justify-between items-start mb-1.5">
+        <div>
+          <div class="flex items-center gap-1.5">
+            <span :class="tx.trade_type === 'BUY' ? 'bg-red-500/20 text-red-400 border border-red-500/40' : 'bg-blue-500/20 text-blue-400 border border-blue-500/40'"
+                  class="text-[10px] px-1.5 py-0.5 rounded font-black">
+              {{ tx.trade_type === 'BUY' ? '매수' : '매도' }}
+            </span>
+            <h4 class="text-xs font-black text-white">{{ tx.name || getStockName(tx.ticker) }}</h4>
+          </div>
+          <span class="text-[10px] text-slate-400 block mt-0.5">{{ tx.ticker }} · {{ tx.trade_date }}</span>
+        </div>
 
-    const hContainer = document.getElementById('view-holdings');
-    if (holdings.length === 0) {
-      hContainer.innerHTML = '<p class="text-center py-12 text-slate-500 text-xs">보유 중인 주식이 없습니다.<br>하단의 버튼을 눌러 매수를 등록하세요.</p>';
-    } else {
-      let hHtml = '';
-      holdings.forEach(h => {
-        const isUp = h.changePct >= 0;
-        const isProfit = h.totalReturn >= 0;
-        hHtml += `
-          <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-md">
-            <div class="flex justify-between items-start mb-2">
+        <!-- 삭제 버튼 (원클릭 삭제 지원) -->
+        <button @click="deleteTransaction(tx.id)" class="text-slate-500 hover:text-red-400 p-1 active:scale-90 transition-all text-xs" title="삭제">
+          <i class="fa-solid fa-trash-can"></i>
+        </button>
+      </div>
+
+      <div class="flex justify-between items-center bg-slate-950/60 p-2 rounded-xl text-[11px] border border-slate-800/80 mt-2">
+        <span class="text-slate-400">{{ tx.shares }}주 @ ₩{{ formatNum(tx.price) }}</span>
+        <span class="font-extrabold text-white">₩{{ formatNum(tx.shares * tx.price) }}</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════════ -->
+  <!-- 탭 4: 분배금 수령 내역 관리 (Dividend Logs) -->
+  <!-- ════════════════════════════════════════════════════════════════ -->
+  <div v-if="currentTab === 'dividends'" class="space-y-3">
+    <!-- 상단 요약 바 -->
+    <div class="flex justify-between items-center bg-slate-900 p-2.5 rounded-xl border border-slate-800 text-xs">
+      <span class="text-slate-400">총 수령 건수: <b class="text-white">{{ dividends.length }}건</b></span>
+      <span class="text-slate-400">누적: <b class="text-amber-400 font-black">₩{{ formatNum(divSummary.totalReceived) }}</b></span>
+    </div>
+
+    <div v-if="dividends.length === 0" class="text-center py-12 text-slate-500 text-xs bg-slate-900/40 rounded-2xl border border-dashed border-slate-800">
+      등록된 분배금 내역이 없습니다.
+    </div>
+
+    <!-- 분배금 카드 목록 -->
+    <div v-for="div in dividends" :key="div.id" class="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 shadow-md">
+      <div class="flex justify-between items-start mb-2">
+        <div>
+          <h4 class="text-xs font-black text-white">{{ getStockName(div.ticker) }}</h4>
+          <span class="text-[10px] text-slate-400">{{ div.ticker }} · 지급일: {{ div.pay_date }}</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-sm font-black text-amber-300">₩{{ formatNum(div.total_received) }}</span>
+          <button @click="deleteDividend(div.id)" class="text-slate-500 hover:text-red-400 p-1 active:scale-90 transition-all text-xs" title="삭제">
+            <i class="fa-solid fa-trash-can"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- 상태 변경 3단 토글 -->
+      <div class="flex justify-between items-center pt-2 border-t border-slate-800/80 text-[11px]">
+        <span class="text-slate-400">상태:</span>
+        <div class="flex gap-1">
+          <button @click="updateDivStatus(div.id, 'CASH')" 
+                  class="px-2 py-1 rounded-lg text-[10px] font-bold transition-all"
+                  :class="div.status === 'CASH' ? 'bg-cyan-500 text-slate-950 shadow' : 'bg-slate-950 text-slate-400 border border-slate-800'">예수금</button>
+          <button @click="updateDivStatus(div.id, 'REINVEST')" 
+                  class="px-2 py-1 rounded-lg text-[10px] font-bold transition-all"
+                  :class="div.status === 'REINVEST' ? 'bg-emerald-500 text-slate-950 shadow' : 'bg-slate-950 text-slate-400 border border-slate-800'">재매수</button>
+          <button @click="updateDivStatus(div.id, 'WITHDRAW')" 
+                  class="px-2 py-1 rounded-lg text-[10px] font-bold transition-all"
+                  :class="div.status === 'WITHDRAW' ? 'bg-slate-600 text-white shadow' : 'bg-slate-950 text-slate-400 border border-slate-800'">인출</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════════ -->
+  <!-- 탭 5: 복리 재투자 & 은퇴 목표 계산기 (Simulator) -->
+  <!-- ════════════════════════════════════════════════════════════════ -->
+  <div v-if="currentTab === 'simulator'" class="space-y-4">
+    <!-- A. 월 배당 목표 달성 계산기 -->
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+      <h3 class="text-xs font-black text-white mb-3 flex items-center gap-1.5">
+        <i class="fa-solid fa-bullseye text-red-400"></i> 은퇴 & 월 배당 목표 달성 계산기
+      </h3>
+
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block text-slate-400 mb-1">희망 월 배당금(원)</label>
+          <div class="relative">
+            <input v-model.number="calcTargetMonthly" type="number" step="100000" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm font-bold text-amber-300">
+            <span class="absolute right-3 top-3.5 text-xs text-slate-400">원/월</span>
+          </div>
+          <!-- 빠른 선택 버튼 -->
+          <div class="flex gap-1.5 mt-1.5">
+            <button @click="calcTargetMonthly = 500000" class="px-2 py-1 rounded bg-slate-800 text-[10px]">50만원</button>
+            <button @click="calcTargetMonthly = 1000000" class="px-2 py-1 rounded bg-slate-800 text-[10px]">100만원</button>
+            <button @click="calcTargetMonthly = 2000000" class="px-2 py-1 rounded bg-slate-800 text-[10px]">200만원</button>
+            <button @click="calcTargetMonthly = 3000000" class="px-2 py-1 rounded bg-slate-800 text-[10px]">300만원</button>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-slate-400 mb-1">적용 연 배당률 (현재 포트폴리오 기준)</label>
+          <div class="relative">
+            <input v-model.number="calcAnnualYield" type="number" step="0.5" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm font-bold text-emerald-400">
+            <span class="absolute right-3 top-3.5 text-xs text-slate-400">% / 연</span>
+          </div>
+        </div>
+
+        <!-- 계산 결과 표시 박스 -->
+        <div class="bg-slate-950/80 border border-slate-800 rounded-xl p-3 mt-3 space-y-2 text-xs">
+          <div class="flex justify-between">
+            <span class="text-slate-400">목표 달성 필요 총자산:</span>
+            <b class="text-white">₩ {{ formatNum(requiredTotalAsset) }}</b>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-slate-400">현재 총 투자 원금:</span>
+            <b class="text-slate-300">₩ {{ formatNum(totalInvested) }}</b>
+          </div>
+          <div class="flex justify-between pt-2 border-t border-slate-800/80 font-bold">
+            <span class="text-emerald-400">앞으로 추가 모아야 할 원금:</span>
+            <b class="text-emerald-300 text-sm">₩ {{ formatNum(additionalNeeded) }}</b>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- B. 복리 재투자 시뮬레이터 (스노우볼) -->
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+      <h3 class="text-xs font-black text-white mb-2 flex items-center gap-1.5">
+        <i class="fa-solid fa-snowflake text-cyan-400"></i> 배당 100% 복리 재투자 시뮬레이션
+      </h3>
+      <p class="text-[11px] text-slate-400 mb-3">현재 원금(₩{{ formatNum(totalInvested) }})과 연 {{ calcAnnualYield }}% 배당률을 전액 재투자할 때:</p>
+
+      <div class="space-y-2 text-xs">
+        <div v-for="sim in simulationResults" :key="sim.year" class="p-2.5 bg-slate-950/60 rounded-xl border border-slate-800 flex justify-between items-center">
+          <div>
+            <span class="font-bold text-emerald-400 block">{{ sim.year }}년 뒤</span>
+            <span class="text-[10px] text-slate-400">총 자산: ₩{{ formatNum(sim.asset) }}</span>
+          </div>
+          <div class="text-right">
+            <span class="text-[10px] text-slate-400 block">예상 월 배당금</span>
+            <b class="text-amber-300 font-bold">₩ {{ formatNum(sim.monthlyDiv) }} / 월</b>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════════ -->
+  <!-- 5. 하단 고정 등록 버튼 -->
+  <!-- ════════════════════════════════════════════════════════════════ -->
+  <div class="fixed bottom-5 left-0 right-0 max-w-md mx-auto px-4 z-40">
+    <button type="button" @click="openModal" class="w-full bg-emerald-500 active:bg-emerald-600 text-slate-950 font-black py-3.5 rounded-2xl shadow-2xl flex items-center justify-center gap-2 text-sm active:scale-98 transition-all">
+      <i class="fa-solid fa-circle-plus text-base"></i> 거래 / 분배금 입력하기
+    </button>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════════ -->
+  <!-- 6. 모바일 최적화 입력 모달 (티커 자동완성 포함) -->
+  <!-- ════════════════════════════════════════════════════════════════ -->
+  <div v-if="showModal" class="fixed inset-0 bg-black/85 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-md p-5 text-white max-h-[92vh] overflow-y-auto">
+      
+      <div class="flex justify-between items-center mb-3">
+        <h3 class="text-base font-bold flex items-center gap-2">
+          <i class="fa-solid fa-pen-to-square text-emerald-400"></i> 새 내역 등록
+        </h3>
+        <button type="button" @click="showModal = false" class="text-slate-400 hover:text-white text-xl p-1">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <!-- 모달 내부 에러 배너 -->
+      <div v-if="modalError" class="mb-3 p-2.5 bg-red-950 border border-red-800 text-red-300 rounded-xl text-xs font-semibold">
+        🚨 {{ modalError }}
+      </div>
+
+      <!-- 모달 상단 탭 (거래 vs 분배금) -->
+      <div class="flex bg-slate-950 rounded-xl p-1 mb-4 text-xs font-bold">
+        <button type="button" @click="formType = 'TRADE'" class="flex-1 py-2 rounded-lg transition-all" 
+                :class="formType === 'TRADE' ? 'bg-slate-800 text-white shadow' : 'text-slate-400'">매수 / 매도</button>
+        <button type="button" @click="formType = 'DIVIDEND'" class="flex-1 py-2 rounded-lg transition-all" 
+                :class="formType === 'DIVIDEND' ? 'bg-slate-800 text-amber-300 shadow' : 'text-slate-400'">분배금(배당금)</button>
+      </div>
+
+      <!-- [A] 매수 / 매도 거래 입력 폼 -->
+      <div v-if="formType === 'TRADE'" class="space-y-3 text-xs">
+        <div>
+          <label class="block text-slate-400 mb-1">거래 구분</label>
+          <select v-model="tradeForm.trade_type" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-white">
+            <option value="BUY">매수 / 추가매수 (평단가 자동 갱신)</option>
+            <option value="SELL">매도 (실현손익 분리 기록)</option>
+          </select>
+        </div>
+
+        <!-- 티커 입력 & 자동완성 안내 드롭다운 -->
+        <div class="relative">
+          <label class="block text-slate-400 mb-1">티커 / 종목코드 <span class="text-red-400">*</span></label>
+          <div class="flex gap-2">
+            <input v-model="tradeForm.ticker" @input="onTickerInput('trade')" placeholder="예: 441680 또는 JEPQ" 
+                   class="flex-1 bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm uppercase text-white font-mono">
+            <button type="button" @click="fetchOfficialName('trade')" class="px-3 bg-slate-800 hover:bg-slate-700 rounded-xl text-xs border border-slate-700 text-emerald-400">
+              조회
+            </button>
+          </div>
+
+          <!-- 자동 완성 추천 드롭다운 -->
+          <div v-if="tickerSuggestions.length > 0 && activeSuggestionForm === 'trade'" 
+               class="absolute left-0 right-0 top-full mt-1 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-50 max-h-48 overflow-y-auto">
+            <div v-for="s in tickerSuggestions" :key="s.ticker" @click="selectSuggestion('trade', s)" 
+                 class="p-2.5 hover:bg-slate-700 cursor-pointer border-b border-slate-750 flex justify-between items-center text-xs">
               <div>
-                <h3 class="text-sm font-black text-white">${h.name}</h3>
-                <span class="text-[11px] text-slate-400">${h.ticker} · <b class="text-slate-200">${h.shares}주 보유</b></span>
+                <b class="text-white">{{ s.ticker }}</b> <span class="text-slate-300 ml-1.5">{{ s.name }}</span>
               </div>
-              <div class="text-right">
-                <div class="text-sm font-extrabold text-white">₩${formatNum(h.closePrice)}</div>
-                <div class="text-[10px] ${isUp ? 'up-red' : 'down-blue'}">${isUp ? '▲ +' : '▼ '}${h.changePct}%</div>
-              </div>
-            </div>
-            <div class="grid grid-cols-2 gap-2 bg-slate-950/50 p-2.5 rounded-xl text-[11px] my-2.5">
-              <div><span class="text-slate-400">평균 매입가:</span> <b>₩${formatNum(h.avgPrice)}</b></div>
-              <div><span class="text-slate-400">평가 금액:</span> <b>₩${formatNum(h.evalAmount)}</b></div>
-              <div><span class="text-slate-400">누적 분배금:</span> <b class="text-amber-400">₩${formatNum(h.divAmt)}</b></div>
-              <div><span class="text-slate-400">원금대비 YOC:</span> <b class="text-emerald-400">연 ${h.yoc}%</b></div>
-            </div>
-            <div class="flex justify-between items-center text-xs pt-2 border-t border-slate-800/80">
-              <span class="text-slate-400 text-[11px]">배당포함 실질 총수익</span>
-              <span class="font-black ${isProfit ? 'up-red' : 'down-blue'}">
-                ${isProfit ? '+' : ''}${formatNum(h.totalReturn)}원 (${h.returnRate}%)
-              </span>
+              <span class="text-[10px] text-slate-400">{{ s.market }}</span>
             </div>
           </div>
-        `;
-      });
-      hContainer.innerHTML = hHtml;
-    }
+        </div>
 
-    const histContainer = document.getElementById('history-list');
-    if (transactions.length === 0) {
-      histContainer.innerHTML = '<p class="text-center py-10 text-slate-500 text-xs">기록된 매매 내역이 없습니다.</p>';
-    } else {
-      let txHtml = '';
-      [...transactions].reverse().forEach(t => {
-        const isBuy = t.trade_type === 'BUY';
-        txHtml += `
-          <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 flex justify-between items-center text-xs">
-            <div>
-              <div class="flex items-center gap-1.5 mb-0.5">
-                <span class="px-1.5 py-0.5 rounded text-[10px] font-bold ${isBuy ? 'bg-red-950 text-red-400' : 'bg-blue-950 text-blue-400'}">
-                  ${isBuy ? '매수' : '매도'}
-                </span>
-                <b class="text-white text-sm">${t.name || t.ticker}</b>
-              </div>
-              <p class="text-[11px] text-slate-400">
-                ${t.trade_date} · <b class="text-slate-300">${t.shares}주</b> @ ₩${formatNum(t.price)}
-              </p>
-            </div>
-            <div class="flex items-center gap-3">
-              <span class="font-extrabold text-slate-200 text-sm">₩${formatNum(t.shares * t.price)}</span>
-              <button onclick="deleteTrade(${t.id})" class="text-slate-600 hover:text-red-400 p-1">
-                <i class="fa-solid fa-trash-can"></i>
-              </button>
+        <div>
+          <label class="block text-slate-400 mb-1">공식 종목명 (자동 완성됨)</label>
+          <input v-model="tradeForm.name" placeholder="티커 입력 시 자동 조회됩니다" class="w-full bg-slate-950/70 border border-slate-700 rounded-xl p-3 text-sm text-slate-200">
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-slate-400 mb-1">수량(주) <span class="text-red-400">*</span></label>
+            <input v-model.number="tradeForm.shares" type="number" placeholder="예: 100" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-white">
+            <div class="flex gap-1 mt-1">
+              <button type="button" @click="tradeForm.shares = (Number(tradeForm.shares) || 0) + 10" class="px-2 py-0.5 rounded bg-slate-800 text-[10px]">+10</button>
+              <button type="button" @click="tradeForm.shares = (Number(tradeForm.shares) || 0) + 50" class="px-2 py-0.5 rounded bg-slate-800 text-[10px]">+50</button>
+              <button type="button" @click="tradeForm.shares = (Number(tradeForm.shares) || 0) + 100" class="px-2 py-0.5 rounded bg-slate-800 text-[10px]">+100</button>
             </div>
           </div>
-        `;
-      });
-      histContainer.innerHTML = txHtml;
-    }
+          <div>
+            <label class="block text-slate-400 mb-1">
+              체결 단가 ({{ isUsTicker(tradeForm.ticker) ? '달러 $' : '원 ₩' }}) <span class="text-red-400">*</span>
+            </label>
+            <input v-model.number="tradeForm.price" type="number" step="any" placeholder="예: 10500" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-white">
+          </div>
+        </div>
 
-    const divContainer = document.getElementById('dividend-list');
-    if (dividends.length === 0) {
-      divContainer.innerHTML = '<p class="text-center py-10 text-slate-500 text-xs">등록된 분배금이 없습니다.</p>';
-    } else {
-      let dHtml = '';
-      [...dividends].reverse().forEach(d => {
-        let badge = d.status === 'REINVEST' ? '<span class="text-emerald-400 font-bold bg-emerald-950/60 px-2 py-0.5 rounded">재매수</span>' :
-                    d.status === 'WITHDRAW' ? '<span class="text-slate-400 font-bold bg-slate-800 px-2 py-0.5 rounded">인출 완료</span>' :
-                    '<span class="text-cyan-400 font-bold bg-cyan-950/60 px-2 py-0.5 rounded">예수금(미사용)</span>';
-        dHtml += `
-          <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 text-xs">
-            <div class="flex justify-between items-center mb-1.5">
-              <div><b class="text-white">${d.ticker}</b> <span class="text-[10px] text-slate-400 ml-1">${d.pay_date}</span></div>
-              <span class="font-black text-amber-300">₩${formatNum(d.total_received)}</span>
-            </div>
-            <div class="flex justify-between items-center mt-2 pt-2 border-t border-slate-800/60 text-[11px]">
-              <div>상태: ${badge}</div>
-              <div class="flex gap-1">
-                <button onclick="changeDivStatus(${d.id}, 'CASH')" class="px-2 py-1 rounded bg-slate-800 text-[10px] text-cyan-300">예수금</button>
-                <button onclick="changeDivStatus(${d.id}, 'REINVEST')" class="px-2 py-1 rounded bg-emerald-950 text-emerald-300 text-[10px]">재매수</button>
-                <button onclick="changeDivStatus(${d.id}, 'WITHDRAW')" class="px-2 py-1 rounded bg-slate-800 text-slate-400 text-[10px]">인출</button>
+        <div>
+          <label class="block text-slate-400 mb-1">거래일자</label>
+          <input v-model="tradeForm.trade_date" type="date" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-white">
+        </div>
+
+        <button type="button" @click="submitTrade" :disabled="saving" class="w-full bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 font-black py-3.5 rounded-xl text-slate-950 text-sm mt-2 shadow-lg active:scale-98 transition-all">
+          <span v-if="saving"><i class="fa-solid fa-spinner fa-spin mr-1"></i> 저장 중...</span>
+          <span v-else>거래 등록 및 실시간 재계산</span>
+        </button>
+      </div>
+
+      <!-- [B] 분배금(배당금) 입력 폼 -->
+      <div v-else class="space-y-3 text-xs">
+        <div class="relative">
+          <label class="block text-slate-400 mb-1">종목 티커/코드 <span class="text-amber-400">*</span></label>
+          <div class="flex gap-2">
+            <input v-model="divForm.ticker" @input="onTickerInput('div')" placeholder="예: 441680 또는 JEPQ" 
+                   class="flex-1 bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm uppercase text-white font-mono">
+            <button type="button" @click="fetchOfficialName('div')" class="px-3 bg-slate-800 hover:bg-slate-700 rounded-xl text-xs border border-slate-700 text-amber-400">
+              조회
+            </button>
+          </div>
+
+          <!-- 자동 완성 드롭다운 -->
+          <div v-if="tickerSuggestions.length > 0 && activeSuggestionForm === 'div'" 
+               class="absolute left-0 right-0 top-full mt-1 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-50 max-h-48 overflow-y-auto">
+            <div v-for="s in tickerSuggestions" :key="s.ticker" @click="selectSuggestion('div', s)" 
+                 class="p-2.5 hover:bg-slate-700 cursor-pointer border-b border-slate-750 flex justify-between items-center text-xs">
+              <div>
+                <b class="text-white">{{ s.ticker }}</b> <span class="text-slate-300 ml-1.5">{{ s.name }}</span>
               </div>
+              <span class="text-[10px] text-slate-400">{{ s.market }}</span>
             </div>
           </div>
-        `;
-      });
-      divContainer.innerHTML = dHtml;
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-slate-400 mb-1">실수령액(원) <span class="text-amber-400">*</span></label>
+            <input v-model.number="divForm.total_received" type="number" placeholder="예: 35000" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-white">
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">지급일자</label>
+            <input v-model="divForm.pay_date" type="date" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-white">
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-slate-400 mb-1">분배금 라이프사이클 상태</label>
+          <select v-model="divForm.status" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-white">
+            <option value="CASH">예수금 보관 (아직 안 쓴 남은 분배금)</option>
+            <option value="REINVEST">주식 재매수(재투자)에 사용</option>
+            <option value="WITHDRAW">생활비/외부 계좌로 인출</option>
+          </select>
+        </div>
+
+        <button type="button" @click="submitDividend" :disabled="saving" class="w-full bg-amber-400 hover:bg-amber-300 disabled:opacity-50 font-black py-3.5 rounded-xl text-slate-950 text-sm mt-2 shadow-lg active:scale-98 transition-all">
+          <span v-if="saving"><i class="fa-solid fa-spinner fa-spin mr-1"></i> 저장 중...</span>
+          <span v-else>분배금 기록 저장하기</span>
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<!-- JavaScript 핵심 금융 로직 & Supabase 연동 -->
+<!-- ════════════════════════════════════════════════════════════════ -->
+<script>
+  // 1. Supabase 연동 설정 (기본 세팅 완료)
+  const SUPABASE_URL = "https://wlavetbnglzrpkeyesqv.supabase.co";
+  const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndsYXZldGJuZ2x6cnBrZXllc3F2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg1NDQ1MTMsImV4cCI6MjEwNDEyMDUxM30.1hk6OBMoqTcpUHEVxjXlIfr1SKf776sa-65xPPSy35M";
+
+  let supabaseClient = null;
+  try {
+    if (window.supabase) {
+      supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     }
+  } catch (err) {
+    console.error("Supabase 초기화 에러:", err);
   }
 
-  async function syncToSupabase(table, payload) {
-    const key = localStorage.getItem("SP_KEY");
-    if (!key) return;
-    try {
-      await fetch(SUPABASE_URL + '/rest/v1/' + table, {
-        method: 'POST',
-        headers: { 'apikey': key, 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+  // 주요 커버드콜 및 배당 ETF 내장 공식 명칭 사전 (빠른 자동 완성)
+  const PRESET_TICKERS = {
+    // 미국 상장 주요 커버드콜 / 고배당
+    "JEPQ": { name: "JPMorgan Nasdaq Equity Premium Income ETF", market: "US" },
+    "JEPI": { name: "JPMorgan Equity Premium Income ETF", market: "US" },
+    "TSLY": { name: "YieldMax TSLA Option Income Strategy ETF", market: "US" },
+    "CONY": { name: "YieldMax COIN Option Income Strategy ETF", market: "US" },
+    "NVDY": { name: "YieldMax NVDA Option Income Strategy ETF", market: "US" },
+    "MSTY": { name: "YieldMax MSTR Option Income Strategy ETF", market: "US" },
+    "QYLD": { name: "Global X NASDAQ 100 Covered Call ETF", market: "US" },
+    "XYLD": { name: "Global X S&P 500 Covered Call ETF", market: "US" },
+    "RYLD": { name: "Global X Russell 2000 Covered Call ETF", market: "US" },
+    "SCHD": { name: "Schwab U.S. Dividend Equity ETF", market: "US" },
+    "O": { name: "Realty Income Corporation", market: "US" },
+    "SPYI": { name: "NEOS S&P 500 High Income ETF", market: "US" },
+    "QQQI": { name: "NEOS Nasdaq-100 High Income ETF", market: "US" },
+    "TLTW": { name: "iShares 20+ Year Treasury BuyWrite ETF", market: "US" },
+
+    // 국내 상장 주요 커버드콜 / 배당
+    "441680": { name: "TIGER 미국나스닥100커버드콜(합성)", market: "KR" },
+    "486290": { name: "KODEX 200커버드콜액티브", market: "KR" },
+    "458730": { name: "ACE 미국배당다우존스", market: "KR" },
+    "458740": { name: "ACE 미국배당다우존스한국형(H)", market: "KR" },
+    "453850": { name: "SOL 미국배당다우존스", market: "KR" },
+    "458760": { name: "TIGER 미국배당다우존스", market: "KR" },
+    "482730": { name: "TIGER 미국배당+7%프리미엄다우존스", market: "KR" },
+    "484980": { name: "ACE 미국500 15%프리미엄분배(합성)", market: "KR" },
+    "486300": { name: "KODEX 테슬라커버드콜채권혼합액티브", market: "KR" },
+    "491620": { name: "KODEX 미국AI테크TOP10+15%프리미엄", market: "KR" },
+    "491630": { name: "KODEX 미국30년국채+12%프리미엄", market: "KR" },
+    "492060": { name: "TIGER 미국AI빅테크10타겟커버드콜", market: "KR" },
+    "492070": { name: "TIGER 미국30년국채프리미엄액티브(H)", market: "KR" },
+    "0198A0": { name: "키움 코스닥150 커버드콜", market: "KR" },
+    "O198A0": { name: "키움 코스닥150 커버드콜", market: "KR" }
+  };
+
+  const { createApp, ref, computed, onMounted } = Vue;
+
+  createApp({
+    setup() {
+      const loading = ref(false);
+      const saving = ref(false);
+      const toastMessage = ref("");
+      const toastType = ref("success");
+      const modalError = ref("");
+
+      const currentTab = ref('holdings'); // 'holdings', 'calendar', 'trades', 'dividends', 'simulator'
+      const showModal = ref(false);
+      const formType = ref('TRADE'); // 'TRADE' or 'DIVIDEND'
+
+      // 데이터 저장소
+      const transactions = ref([]);
+      const dividends = ref([]);
+      const dailyPrices = ref({});
+      const exchangeRate = ref(1380); // 기본 환율
+
+      // 필터 및 목표
+      const tradeFilter = ref('ALL'); // 'ALL', 'BUY', 'SELL'
+      const monthlyGoal = ref(Number(localStorage.getItem('cc_monthly_goal') || 500000));
+      const calcTargetMonthly = ref(1000000);
+      const calcAnnualYield = ref(10.0);
+
+      // 입력 폼
+      const tradeForm = ref({
+        trade_type: 'BUY', ticker: '', name: '', shares: null, price: null, 
+        trade_date: new Date().toISOString().split('T')[0]
       });
-    } catch(e) {}
-  }
 
-  function saveKey() {
-    const k = document.getElementById('db-key-input').value.trim();
-    localStorage.setItem("SP_KEY", k);
-    closeModal('key-modal');
-    fetchLatestPrices();
-  }
+      const divForm = ref({
+        ticker: '', total_received: null, status: 'CASH', 
+        pay_date: new Date().toISOString().split('T')[0]
+      });
 
-  // 첫 진입 시 저장된 키가 있으면 최신 종가 자동 조회
-  if (localStorage.getItem("SP_KEY")) {
-    fetchLatestPrices();
-  } else {
-    calculateAndRender();
-  }
+      // 티커 자동완성 제안
+      const tickerSuggestions = ref([]);
+      const activeSuggestionForm = ref('');
+
+      const showToast = (msg, type = 'success') => {
+        toastMessage.value = msg;
+        toastType.value = type;
+        setTimeout(() => { toastMessage.value = ''; }, 3000);
+      };
+
+      const openModal = () => {
+        modalError.value = "";
+        tickerSuggestions.value = [];
+        showModal.value = true;
+      };
+
+      // 실시간 환율 조회 (무료 API)
+      const fetchExchangeRate = async () => {
+        try {
+          const res = await fetch("https://open.er-api.com/v6/latest/USD");
+          const data = await res.json();
+          if (data && data.rates && data.rates.KRW) {
+            exchangeRate.value = Math.round(data.rates.KRW * 10) / 10;
+          }
+        } catch (e) {
+          console.warn("환율 조회 실패, 기본값 사용:", e);
+        }
+      };
+
+      // 전체 데이터 로드
+      const loadAllData = async () => {
+        if (!supabaseClient) {
+          showToast("Supabase 초기화에 실패했습니다.", "error");
+          return;
+        }
+
+        loading.value = true;
+        try {
+          await fetchExchangeRate();
+
+          const [txRes, divRes, priceRes] = await Promise.all([
+            supabaseClient.table('transactions').select('*').order('trade_date', { ascending: false }),
+            supabaseClient.table('dividends').select('*').order('pay_date', { ascending: false }),
+            supabaseClient.table('daily_prices').select('*')
+          ]);
+
+          if (txRes.error) throw txRes.error;
+          if (divRes.error) throw divRes.error;
+          if (priceRes.error) throw priceRes.error;
+
+          transactions.value = txRes.data || [];
+          dividends.value = divRes.data || [];
+          
+          const pMap = {};
+          (priceRes.data || []).forEach(p => { pMap[p.ticker.toUpperCase()] = p; });
+          dailyPrices.value = pMap;
+
+          showToast("데이터를 최신 상태로 갱신했습니다!");
+        } catch (e) {
+          showToast("데이터 불러오기 실패: " + e.message, "error");
+        } finally {
+          loading.value = false;
+        }
+      };
+
+      // 티커가 미국 종목인지 여부 판단
+      const isUsTicker = (t) => {
+        if (!t) return false;
+        const upper = t.trim().toUpperCase();
+        if (PRESET_TICKERS[upper]?.market === 'US') return true;
+        if (dailyPrices.value[upper]?.market === 'US') return true;
+        return /^[A-Z]{1,5}$/.test(upper); // 영문 1~5자리 티커
+      };
+
+      // 티커로부터 공식 종목명 가져오기
+      const getStockName = (ticker) => {
+        if (!ticker) return "";
+        const t = ticker.trim().toUpperCase();
+        if (dailyPrices.value[t]?.name) return dailyPrices.value[t].name;
+        if (PRESET_TICKERS[t]?.name) return PRESET_TICKERS[t].name;
+        const found = transactions.value.find(tx => tx.ticker.toUpperCase() === t && tx.name);
+        return found ? found.name : t;
+      };
+
+      // 티커 입력 시 실시간 제안 리스트 생성
+      const onTickerInput = (form) => {
+        activeSuggestionForm.value = form;
+        const val = (form === 'trade' ? tradeForm.value.ticker : divForm.value.ticker).trim().toUpperCase();
+        if (!val) {
+          tickerSuggestions.value = [];
+          return;
+        }
+
+        const matches = [];
+        // 1. DB 종가 테이블 검색
+        Object.values(dailyPrices.value).forEach(p => {
+          if (p.ticker.includes(val) || (p.name && p.name.includes(val))) {
+            matches.push({ ticker: p.ticker, name: p.name, market: p.market });
+          }
+        });
+        // 2. 프리셋 검색
+        Object.entries(PRESET_TICKERS).forEach(([k, v]) => {
+          if ((k.includes(val) || v.name.includes(val)) && !matches.some(m => m.ticker === k)) {
+            matches.push({ ticker: k, name: v.name, market: v.market });
+          }
+        });
+
+        tickerSuggestions.value = matches.slice(0, 5);
+
+        // 일치하는 항목이 바로 있으면 종목명 자동 세팅
+        fetchOfficialName(form, false);
+      };
+
+      // 추천 검색어 클릭 시
+      const selectSuggestion = (form, item) => {
+        if (form === 'trade') {
+          tradeForm.value.ticker = item.ticker;
+          tradeForm.value.name = item.name;
+        } else {
+          divForm.value.ticker = item.ticker;
+        }
+        tickerSuggestions.value = [];
+      };
+
+      // 공식 종목명 즉시 조회 버튼
+      const fetchOfficialName = (form, showFeedback = true) => {
+        const t = (form === 'trade' ? tradeForm.value.ticker : divForm.value.ticker).trim().toUpperCase();
+        if (!t) return;
+        const official = getStockName(t);
+        if (form === 'trade') {
+          tradeForm.value.name = official;
+        }
+        if (showFeedback && official !== t) {
+          showToast(`'${official}' 종목을 확인했습니다.`);
+        }
+      };
+
+      // 거래 등록 (매수 / 매도)
+      const submitTrade = async () => {
+        modalError.value = "";
+        const t = tradeForm.value;
+
+        if (!t.ticker || !t.ticker.trim()) {
+          modalError.value = "종목 코드(티커)를 입력하세요.";
+          return;
+        }
+        if (!t.shares || t.shares <= 0) {
+          modalError.value = "수량을 1주 이상 숫자로 입력하세요.";
+          return;
+        }
+        if (!t.price || t.price <= 0) {
+          modalError.value = "단가를 0원/0달러 이상 숫자로 입력하세요.";
+          return;
+        }
+
+        saving.value = true;
+        try {
+          const cleanTicker = t.ticker.trim().toUpperCase();
+          const cleanName = t.name && t.name.trim() ? t.name.trim() : getStockName(cleanTicker);
+
+          const payload = {
+            trade_type: t.trade_type,
+            ticker: cleanTicker,
+            name: cleanName,
+            shares: Number(t.shares),
+            price: Number(t.price),
+            trade_date: t.trade_date
+          };
+
+          const { error } = await supabaseClient.table('transactions').insert([payload]);
+          if (error) throw error;
+
+          showToast("✅ 거래가 성공적으로 등록되었습니다!");
+          showModal.value = false;
+          tradeForm.value = { trade_type: 'BUY', ticker: '', name: '', shares: null, price: null, trade_date: new Date().toISOString().split('T')[0] };
+          await loadAllData();
+        } catch (err) {
+          modalError.value = "저장 실패: " + err.message;
+        } finally {
+          saving.value = false;
+        }
+      };
+
+      // 거래 건별 삭제
+      const deleteTransaction = async (id) => {
+        if (!confirm("이 매매 기록을 정말 삭제하시겠습니까? (삭제 시 보유수량과 평단가가 재계산됩니다)")) return;
+        try {
+          const { error } = await supabaseClient.table('transactions').delete().eq('id', id);
+          if (error) throw error;
+          showToast("매매 내역이 삭제되었습니다.");
+          await loadAllData();
+        } catch (e) {
+          showToast("삭제 실패: " + e.message, "error");
+        }
+      };
+
+      // 분배금 등록
+      const submitDividend = async () => {
+        modalError.value = "";
+        const d = divForm.value;
+
+        if (!d.ticker || !d.ticker.trim()) {
+          modalError.value = "종목 티커를 입력하세요.";
+          return;
+        }
+        if (!d.total_received || d.total_received <= 0) {
+          modalError.value = "실수령액을 숫자로 입력하세요.";
+          return;
+        }
+
+        saving.value = true;
+        try {
+          const payload = {
+            ticker: d.ticker.trim().toUpperCase(),
+            total_received: Number(d.total_received),
+            status: d.status,
+            pay_date: d.pay_date,
+            shares_held: 0,
+            dividend_per_share: 0
+          };
+
+          const { error } = await supabaseClient.table('dividends').insert([payload]);
+          if (error) throw error;
+
+          showToast("✅ 분배금 내역이 저장되었습니다!");
+          showModal.value = false;
+          divForm.value = { ticker: '', total_received: null, status: 'CASH', pay_date: new Date().toISOString().split('T')[0] };
+          await loadAllData();
+        } catch (err) {
+          modalError.value = "분배금 저장 실패: " + err.message;
+        } finally {
+          saving.value = false;
+        }
+      };
+
+      // 분배금 건별 삭제
+      const deleteDividend = async (id) => {
+        if (!confirm("이 분배금 내역을 삭제하시겠습니까?")) return;
+        try {
+          const { error } = await supabaseClient.table('dividends').delete().eq('id', id);
+          if (error) throw error;
+          showToast("분배금 내역이 삭제되었습니다.");
+          await loadAllData();
+        } catch (e) {
+          showToast("삭제 실패: " + e.message, "error");
+        }
+      };
+
+      // 분배금 상태 변경 토글 (예수금 / 재매수 / 인출)
+      const updateDivStatus = async (id, status) => {
+        try {
+          const { error } = await supabaseClient.table('dividends').update({ status }).eq('id', id);
+          if (error) throw error;
+          showToast("상태가 변경되었습니다.");
+          await loadAllData();
+        } catch (e) {
+          showToast("상태 변경 오류: " + e.message, "error");
+        }
+      };
+
+      // 월 목표 변경
+      const changeMonthlyGoal = () => {
+        const val = prompt("새로운 월 목표 배당금을 입력하세요 (원 단위):", monthlyGoal.value);
+        if (val && !isNaN(val)) {
+          monthlyGoal.value = Number(val);
+          localStorage.setItem('cc_monthly_goal', monthlyGoal.value);
+          showToast("월 목표 배당금이 수정되었습니다.");
+        }
+      };
+
+      // ── 포트폴리오 금융 계산 엔진 ────────────────────────────────
+      const holdings = computed(() => {
+        const map = {};
+        // 매매 거래를 시간순으로 정렬하여 평단가 및 수량 계산
+        const sortedTx = [...transactions.value].sort((a, b) => new Date(a.trade_date) - new Date(b.trade_date));
+
+        sortedTx.forEach(tx => {
+          const t = tx.ticker.toUpperCase();
+          if (!map[t]) {
+            map[t] = { 
+              ticker: t, 
+              name: tx.name || getStockName(t), 
+              shares: 0, 
+              totalCost: 0, 
+              realizedPnl: 0,
+              market: isUsTicker(t) ? 'US' : 'KR'
+            };
+          }
+          if (tx.trade_type === 'BUY') {
+            map[t].shares += Number(tx.shares);
+            map[t].totalCost += (Number(tx.shares) * Number(tx.price));
+          } else if (tx.trade_type === 'SELL') {
+            const avg = map[t].shares > 0 ? (map[t].totalCost / map[t].shares) : 0;
+            const sellShares = Number(tx.shares);
+            map[t].realizedPnl += ((Number(tx.price) - avg) * sellShares);
+            map[t].shares -= sellShares;
+            map[t].totalCost -= (sellShares * avg);
+          }
+        });
+
+        // 분배금 집계
+        const divMap = {};
+        dividends.value.forEach(d => {
+          const t = d.ticker.toUpperCase();
+          divMap[t] = (divMap[t] || 0) + Number(d.total_received);
+        });
+
+        const rate = exchangeRate.value || 1380;
+
+        return Object.values(map).filter(h => h.shares > 0).map(h => {
+          const p = dailyPrices.value[h.ticker] || {};
+          const isUS = h.market === 'US';
+          const closePrice = Number(p.close_price || (h.totalCost / h.shares));
+          const prevClose = Number(p.prev_close || closePrice);
+          const changePct = p.change_pct !== undefined ? p.change_pct : 0;
+
+          const avgPrice = h.shares > 0 ? (h.totalCost / h.shares) : 0;
+          
+          // 평가 금액 (미국 종목은 달러 -> 원화 환산)
+          const evalAmountRaw = h.shares * closePrice;
+          const evalAmountKRW = isUS ? (evalAmountRaw * rate) : evalAmountRaw;
+          const evalAmountUSD = isUS ? evalAmountRaw : (evalAmountRaw / rate);
+
+          // 투자 원금 원화 환산
+          const totalCostKRW = isUS ? (h.totalCost * rate) : h.totalCost;
+          const unrealizedPnlKRW = evalAmountKRW - totalCostKRW;
+          const realizedPnlKRW = isUS ? (h.realizedPnl * rate) : h.realizedPnl;
+
+          const totalDiv = divMap[h.ticker] || 0;
+          const totalReturnKRW = unrealizedPnlKRW + realizedPnlKRW + totalDiv;
+          const returnRate = totalCostKRW > 0 ? ((totalReturnKRW / totalCostKRW) * 100).toFixed(2) : 0;
+          const yoc = totalCostKRW > 0 ? ((totalDiv / totalCostKRW) * 100).toFixed(2) : 0;
+
+          return {
+            ...h,
+            name: p.name || h.name,
+            closePrice, prevClose, changePct,
+            avgPrice: isUS ? Math.round(avgPrice * 100) / 100 : Math.round(avgPrice),
+            evalAmountKRW: Math.round(evalAmountKRW),
+            evalAmountUSD: Math.round(evalAmountUSD * 100) / 100,
+            totalCostKRW: Math.round(totalCostKRW),
+            totalDividend: Math.round(totalDiv),
+            totalReturn: Math.round(totalReturnKRW),
+            returnRate, yoc
+          };
+        });
+      });
+
+      // 총계 지표들
+      const totalEvalAmount = computed(() => holdings.value.reduce((acc, h) => acc + h.evalAmountKRW, 0));
+      const totalInvested = computed(() => holdings.value.reduce((acc, h) => acc + h.totalCostKRW, 0));
+      const netTotalProfit = computed(() => holdings.value.reduce((acc, h) => acc + h.totalReturn, 0));
+      const totalReturnRate = computed(() => totalInvested.value > 0 ? ((netTotalProfit.value / totalInvested.value) * 100).toFixed(2) : 0);
+      
+      const totalTodayChange = computed(() => {
+        const rate = exchangeRate.value || 1380;
+        return holdings.value.reduce((acc, h) => {
+          const diff = (h.closePrice - h.prevClose) * h.shares;
+          return acc + (h.market === 'US' ? (diff * rate) : diff);
+        }, 0);
+      });
+
+      const avgYOC = computed(() => totalInvested.value > 0 ? ((divSummary.value.totalReceived / totalInvested.value) * 100).toFixed(2) : 0);
+
+      // 분배금 사용처 요약
+      const divSummary = computed(() => {
+        let totalReceived = 0, reinvested = 0, withdrawn = 0;
+        dividends.value.forEach(d => {
+          const amt = Number(d.total_received);
+          totalReceived += amt;
+          if (d.status === 'REINVEST') reinvested += amt;
+          else if (d.status === 'WITHDRAW') withdrawn += amt;
+        });
+        const remainingCash = totalReceived - reinvested - withdrawn;
+        const reinvestRate = totalReceived > 0 ? Math.round((reinvested / totalReceived) * 100) : 0;
+        const cashRate = totalReceived > 0 ? Math.round((remainingCash / totalReceived) * 100) : 0;
+        const withdrawRate = totalReceived > 0 ? Math.round((withdrawn / totalReceived) * 100) : 0;
+
+        return { totalReceived, remainingCash, reinvested, withdrawn, reinvestRate, cashRate, withdrawRate };
+      });
+
+      // 통합 순자산 (주식평가액 + 남은 분배금 예수금)
+      const totalNetAsset = computed(() => totalEvalAmount.value + Math.max(0, divSummary.value.remainingCash));
+
+      // 매매 원장 필터링
+      const filteredTrades = computed(() => {
+        if (tradeFilter.value === 'ALL') return transactions.value;
+        return transactions.value.filter(tx => tx.trade_type === tradeFilter.value);
+      });
+
+      // 이번 달 수령 분배금
+      const thisMonthDividend = computed(() => {
+        const currentYM = new Date().toISOString().slice(0, 7);
+        return dividends.value
+          .filter(d => (d.pay_date || '').startsWith(currentYM))
+          .reduce((acc, d) => acc + Number(d.total_received), 0);
+      });
+
+      // 월별 배당 차트 데이터 (최근 6개월)
+      const monthlyChartData = computed(() => {
+        const groups = {};
+        dividends.value.forEach(d => {
+          if (!d.pay_date) return;
+          const ym = d.pay_date.slice(0, 7); // '2026-08'
+          groups[ym] = (groups[ym] || 0) + Number(d.total_received);
+        });
+
+        const sortedKeys = Object.keys(groups).sort().slice(-6);
+        const maxVal = Math.max(...Object.values(groups), monthlyGoal.value, 1);
+
+        return sortedKeys.map(k => {
+          const [y, m] = k.split('-');
+          return {
+            month: `${y}년 ${m}월`,
+            amount: groups[k],
+            pct: Math.min(100, Math.round((groups[k] / maxVal) * 100))
+          };
+        });
+      });
+
+      // 은퇴 목표 계산기 수치
+      const requiredTotalAsset = computed(() => {
+        const y = (calcAnnualYield.value || 10) / 100;
+        return Math.round((calcTargetMonthly.value * 12) / y);
+      });
+
+      const additionalNeeded = computed(() => Math.max(0, requiredTotalAsset.value - totalInvested.value));
+
+      // 복리 시뮬레이션 수치
+      const simulationResults = computed(() => {
+        const p0 = totalInvested.value || 10000000;
+        const r = (calcAnnualYield.value || 10) / 100;
+        const years = [1, 3, 5, 10];
+
+        return years.map(yr => {
+          // 월복리 공식: A = P * (1 + r/12)^(12*yr)
+          const asset = Math.round(p0 * Math.pow(1 + (r / 12), 12 * yr));
+          const monthlyDiv = Math.round((asset * r) / 12);
+          return { year: yr, asset, monthlyDiv };
+        });
+      });
+
+      const formatNum = (v) => Number(v || 0).toLocaleString();
+
+      onMounted(() => {
+        loadAllData();
+        if (avgYOC.value > 0) calcAnnualYield.value = Number(avgYOC.value);
+      });
+
+      return {
+        loading, saving, toastMessage, toastType, modalError, currentTab, showModal, formType,
+        transactions, dividends, dailyPrices, exchangeRate, tradeFilter, monthlyGoal, calcTargetMonthly, calcAnnualYield,
+        tradeForm, divForm, tickerSuggestions, activeSuggestionForm,
+        openModal, loadAllData, isUsTicker, getStockName, onTickerInput, selectSuggestion, fetchOfficialName,
+        submitTrade, deleteTransaction, submitDividend, deleteDividend, updateDivStatus, changeMonthlyGoal,
+        holdings, totalEvalAmount, totalInvested, netTotalProfit, totalReturnRate, totalTodayChange, avgYOC,
+        divSummary, totalNetAsset, filteredTrades, thisMonthDividend, monthlyChartData,
+        requiredTotalAsset, additionalNeeded, simulationResults, formatNum
+      };
+    }
+  }).mount('#app');
 </script>
 
 </body>
