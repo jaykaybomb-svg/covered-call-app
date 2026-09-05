@@ -11,6 +11,11 @@
   <meta name="apple-mobile-web-app-title" content="커버드콜">
   <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/2422/2422796.png">
 
+  <!-- 브라우저 캐시 방지 (항상 최신 버전 즉시 로딩) -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+
   <!-- Tailwind CSS & FontAwesome Icons -->
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -43,7 +48,7 @@
     .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
   </style>
 </head>
-<body class="min-h-screen pb-28 select-none">
+<body class="min-h-screen pb-12 select-none">
 
 <div id="app" class="max-w-md mx-auto px-4 pt-3">
 
@@ -60,23 +65,14 @@
     </div>
   </transition>
 
-  <!-- 2. 영문 대형 타이틀 헤더 & 네이버 시세 연동 바 -->
+  <!-- 2. 상단 헤더 & 거래/분배금 입력 버튼 상단 고정 배치 -->
   <header class="py-2.5 mb-3">
     <div class="flex justify-between items-center">
-      <div class="flex items-center gap-3">
-        <!-- 심플 세련된 심볼 아이콘 -->
-        <div class="w-10 h-10 rounded-2xl bg-[#1A242D] border border-[#263541] flex items-center justify-center shadow-md relative overflow-hidden flex-shrink-0">
-          <div class="absolute inset-0 bg-gradient-to-tr from-[#00D2B4]/20 to-transparent"></div>
-          <i class="fa-solid fa-layer-group text-[#00D2B4] text-base relative z-10"></i>
-        </div>
-
-        <!-- 영문 대형 폰트 타이틀 -->
-        <div>
-          <h1 class="text-xl sm:text-2xl font-black tracking-tight flex items-center gap-1.5 leading-none">
-            <span class="text-[#E8EEF2]">Covered Call</span>
-            <span class="text-[#00D2B4]">Tracker</span>
-          </h1>
-        </div>
+      <div>
+        <h1 class="text-xl sm:text-2xl font-black tracking-tight flex items-center gap-1.5 leading-none">
+          <span class="text-[#E8EEF2]">Covered Call</span>
+          <span class="text-[#00D2B4]">Tracker</span>
+        </h1>
       </div>
 
       <button @click="loadAllData" class="text-xs bg-[#1A242D] hover:bg-[#222E39] text-[#E8EEF2] px-3 py-1.5 rounded-full flex items-center gap-1.5 border border-[#263541] shadow-sm active:scale-95 transition-all flex-shrink-0">
@@ -84,18 +80,11 @@
       </button>
     </div>
 
-    <!-- 정보 배지 바 -->
-    <div class="grid grid-cols-2 gap-2 mt-3 text-[11px]">
-      <div class="flex items-center gap-1.5 bg-[#1A242D] border border-[#263541] rounded-xl px-2.5 py-1.5 text-[#8FA0AF]">
-        <span>USD / KRW:</span>
-        <b class="text-[#E8EEF2] font-bold">₩{{ formatNum(exchangeRate) }}</b>
-      </div>
-      <div class="flex items-center justify-between bg-[#1A242D] border border-[#263541] rounded-xl px-2.5 py-1.5 text-[10px] text-[#00D2B4]">
-        <span class="flex items-center gap-1">
-          <i class="fa-solid fa-circle text-[6px] text-[#00D2B4]"></i> 네이버 증권 시세
-        </span>
-        <span class="text-[#8FA0AF] font-normal">실시간</span>
-      </div>
+    <!-- 고정 배치된 거래/분배금 입력 버튼 -->
+    <div class="mt-3">
+      <button type="button" @click="openNewModal" class="w-full bg-[#00D2B4] hover:bg-[#00BC9F] active:scale-98 text-[#0F171E] font-black py-3 rounded-2xl shadow-lg shadow-[#00D2B4]/15 flex items-center justify-center gap-2 text-xs sm:text-sm transition-all">
+        <i class="fa-solid fa-plus text-sm"></i> 거래 / 분배금 입력하기
+      </button>
     </div>
   </header>
 
@@ -137,7 +126,7 @@
     </div>
   </div>
 
-  <!-- 4. 네비게이션 탭 바 (순서: 보유종목 -> 분배금내역 -> 매매원장 -> 배당캘린더 -> 재투자가이드 -> 복리목표) -->
+  <!-- 4. 네비게이션 탭 바 (보유종목 -> 분배금내역 -> 매매원장 -> 배당캘린더 -> 재투자가이드 -> 복리목표) -->
   <div class="flex gap-1.5 bg-[#1A242D] border border-[#263541] p-1.5 rounded-2xl mb-4 text-xs font-bold overflow-x-auto no-scrollbar">
     
     <!-- 탭 1: 보유 종목 -->
@@ -214,19 +203,10 @@
       </div>
     </div>
 
-    <!-- 시세 갱신 팁 배너 -->
-    <div class="bg-[#1A242D]/80 border border-[#263541] rounded-xl p-2.5 flex items-center justify-between text-[11px] text-[#8FA0AF]">
-      <span class="flex items-center gap-1.5">
-        <i class="fa-solid fa-circle-info text-[#00D2B4]"></i>
-        <span>가격 클릭 시 실시간 시세 직접 수정 가능</span>
-      </span>
-      <span class="text-[#8FA0AF] text-[10px]">네이버금융 기준</span>
-    </div>
-
     <!-- 종목 카드들 -->
     <div v-if="holdings.length === 0" class="text-center py-12 text-[#8FA0AF] text-xs bg-[#1A242D]/40 rounded-2xl border border-dashed border-[#263541]">
       <i class="fa-solid fa-folder-open text-3xl mb-2 text-[#8FA0AF]/50 block"></i>
-      등록된 보유 종목이 없습니다.<br>하단의 <b>[거래 / 분배금 입력하기]</b> 버튼을 눌러 매수를 기록하세요.
+      등록된 보유 종목이 없습니다.<br>상단의 <b>[거래 / 분배금 입력하기]</b> 버튼을 눌러 매수를 기록하세요.
     </div>
 
     <div v-for="item in holdings" :key="item.ticker" class="bg-[#1A242D] border border-[#263541] rounded-2xl p-4 shadow-md">
@@ -310,7 +290,7 @@
         </div>
       </div>
 
-      <!-- [요청 반영] 원금대비 누적 분배율 및 하단에 "두 항목 다 최근 분배율"로 표기 -->
+      <!-- 원금대비 누적 분배율 및 하단에 "두 항목 다 최근 분배율" 표기 -->
       <div class="bg-[#121A21] border border-[#22303C] rounded-xl p-2.5 mb-2">
         <div class="flex justify-between items-center text-xs mb-1.5">
           <span class="text-[#8FA0AF] text-[11px] flex items-center gap-1">
@@ -320,7 +300,6 @@
             +{{ item.divYieldOnCost }}% 회수
           </span>
         </div>
-        <!-- 연분배율 대신 "두 항목 모두 최근 회차 분배율" 표기 -->
         <div class="grid grid-cols-2 gap-2 pt-1.5 border-t border-[#22303C] text-[10px]">
           <div>
             <span class="text-[#8FA0AF] block">최근 실질 분배율(원금):</span>
@@ -359,7 +338,7 @@
   </div>
 
   <!-- ════════════════════════════════════════════════════════════════ -->
-  <!-- 탭 2: 분배금 수령 내역 관리 (수정 기능 완벽 탑재) -->
+  <!-- 탭 2: 분배금 수령 내역 관리 -->
   <!-- ════════════════════════════════════════════════════════════════ -->
   <div v-if="currentTab === 'dividends'" class="space-y-3">
     <!-- 상단 요약 바 -->
@@ -374,12 +353,6 @@
       </div>
     </div>
 
-    <!-- 안내 메시지 -->
-    <div class="bg-[#1A242D]/80 border border-[#263541] rounded-xl p-2.5 text-[11px] text-[#8FA0AF] flex items-start gap-2">
-      <i class="fa-solid fa-circle-info text-[#00D2B4] mt-0.5"></i>
-      <span>각 분배금 내역의 우측 <b>수정(✏️) 버튼</b>을 누르면 지급일자, 실수령액, 분배기준일, 기준가격을 언제든 자유롭게 수정할 수 있습니다!</span>
-    </div>
-
     <div v-if="dividends.length === 0" class="text-center py-12 text-[#8FA0AF] text-xs bg-[#1A242D]/40 rounded-2xl border border-dashed border-[#263541]">
       등록된 분배금 내역이 없습니다.
     </div>
@@ -392,16 +365,20 @@
             <h4 class="text-xs font-black text-[#E8EEF2]">{{ getStockName(div.ticker) }}</h4>
             <span class="text-[10px] text-[#8FA0AF]">({{ div.ticker }})</span>
           </div>
-          <!-- 지급일 및 그달 분배기준일 명시 -->
-          <div class="flex items-center gap-2 mt-0.5 text-[10px] text-[#8FA0AF]">
-            <span>지급일: <b>{{ div.pay_date }}</b></span>
-            <span class="text-[#00D2B4] flex items-center gap-1">
-              <i class="fa-regular fa-calendar-check text-[9px]"></i> 분배기준일: <b>{{ div.recordDate }}</b>
-            </span>
+          
+          <!-- 지급일과 분배기준일 줄바꿈 표기 -->
+          <div class="mt-1 space-y-0.5 text-[10px]">
+            <div class="text-[#8FA0AF]">
+              지급일: <b class="text-[#E8EEF2] font-semibold">{{ div.pay_date }}</b>
+            </div>
+            <div class="text-[#00D2B4] flex items-center gap-1">
+              <i class="fa-regular fa-calendar-check text-[9px]"></i>
+              <span>분배기준일: <b>{{ div.recordDate }}</b></span>
+            </div>
           </div>
         </div>
 
-        <!-- [요청 반영] 분배금 수정 및 삭제 액션 버튼 그룹 -->
+        <!-- 분배금 수정 및 삭제 액션 버튼 그룹 -->
         <div class="flex items-center gap-1">
           <span class="text-sm font-black text-[#00D2B4] mr-1">₩{{ formatNum(div.total_received) }}</span>
           <button @click="openEditDividend(div)" class="text-[#8FA0AF] hover:text-[#00D2B4] p-1.5 active:scale-90 transition-all text-xs" title="분배금 수정">
@@ -505,7 +482,7 @@
           <span class="text-[10px] text-[#8FA0AF] block mt-0.5">{{ tx.ticker }} · {{ tx.trade_date }}</span>
         </div>
 
-        <!-- [요청 반영] 매매 원장 수정 및 삭제 액션 버튼 그룹 -->
+        <!-- 매매 원장 수정 및 삭제 액션 버튼 그룹 -->
         <div class="flex items-center gap-1">
           <button @click="openEditTrade(tx)" class="text-[#8FA0AF] hover:text-[#00D2B4] p-1.5 active:scale-90 transition-all text-xs" title="매매 기록 수정">
             <i class="fa-solid fa-pen"></i>
@@ -644,9 +621,9 @@
                 <span class="font-bold text-[#E8EEF2]">{{ getStockName(d.ticker) }}</span>
                 <span class="text-[10px] text-[#8FA0AF]">({{ d.ticker }})</span>
               </div>
-              <div class="flex items-center gap-2 mt-0.5 text-[10px] text-[#8FA0AF]">
-                <span>지급: {{ d.pay_date }}</span>
-                <span class="text-[#00D2B4]">기준일: <b>{{ d.recordDate }}</b></span>
+              <div class="mt-1 space-y-0.5 text-[10px]">
+                <div class="text-[#8FA0AF]">지급: <b class="text-[#E8EEF2]">{{ d.pay_date }}</b></div>
+                <div class="text-[#00D2B4]">기준일: <b>{{ d.recordDate }}</b></div>
               </div>
             </div>
             <div class="text-right flex items-center gap-1.5">
@@ -683,7 +660,7 @@
   </div>
 
   <!-- ════════════════════════════════════════════════════════════════ -->
-  <!-- 탭 5: 배당금 재투자 가이드 (추천 금액대 및 최적 매수 플랜) -->
+  <!-- 탭 5: 배당 재투자 가이드 -->
   <!-- ════════════════════════════════════════════════════════════════ -->
   <div v-if="currentTab === 'reinvestGuide'" class="space-y-4">
     <!-- 예수금 현황 안내 카드 -->
@@ -873,16 +850,7 @@
   </div>
 
   <!-- ════════════════════════════════════════════════════════════════ -->
-  <!-- 5. 하단 고정 등록 버튼 -->
-  <!-- ════════════════════════════════════════════════════════════════ -->
-  <div class="fixed bottom-5 left-0 right-0 max-w-md mx-auto px-4 z-40">
-    <button type="button" @click="openNewModal" class="w-full bg-[#00D2B4] hover:bg-[#00BC9F] active:scale-98 text-[#0F171E] font-black py-3.5 rounded-2xl shadow-xl shadow-[#00D2B4]/20 flex items-center justify-center gap-2 text-sm transition-all">
-      <i class="fa-solid fa-plus text-base"></i> 거래 / 분배금 입력하기
-    </button>
-  </div>
-
-  <!-- ════════════════════════════════════════════════════════════════ -->
-  <!-- 6. 모바일 최적화 입력 및 수정 모달 -->
+  <!-- 5. 모바일 최적화 입력 및 수정 모달 -->
   <!-- ════════════════════════════════════════════════════════════════ -->
   <div v-if="showModal" class="fixed inset-0 bg-black/85 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-4">
     <div class="bg-[#1A242D] border border-[#263541] rounded-3xl w-full max-w-md p-5 text-[#E8EEF2] max-h-[92vh] overflow-y-auto">
@@ -956,28 +924,29 @@
         <div class="relative">
           <label class="block text-[#8FA0AF] mb-1">티커 / 종목코드 <span class="text-[#E8A3B0]">*</span></label>
           <div class="flex gap-2">
-            <input v-model="tradeForm.ticker" @input="onTickerInput('trade')" placeholder="예: 0219E0 또는 JEPQ" 
+            <input v-model="tradeForm.ticker" @input="onTickerInput('trade')" placeholder="예: 472150, 0219E0, JEPQ" 
                    class="flex-1 bg-[#121A21] border border-[#22303C] rounded-xl p-3 text-sm uppercase text-[#E8EEF2] font-mono">
-            <button type="button" @click="fetchOfficialName('trade')" class="px-3 bg-[#222E39] hover:bg-[#2C3B49] rounded-xl text-xs border border-[#263541] text-[#00D2B4]">
+            <button type="button" @click="fetchOfficialName('trade')" class="px-3 bg-[#222E39] hover:bg-[#2C3B49] rounded-xl text-xs border border-[#263541] text-[#00D2B4] font-bold">
               조회
             </button>
           </div>
 
           <!-- 자동 완성 추천 드롭다운 -->
           <div v-if="tickerSuggestions.length > 0 && activeSuggestionForm === 'trade'" 
-               class="absolute left-0 right-0 top-full mt-1 bg-[#1A242D] border border-[#263541] rounded-xl shadow-2xl z-50 max-h-48 overflow-y-auto">
+               class="absolute left-0 right-0 top-full mt-1 bg-[#1A242D] border border-[#263541] rounded-xl shadow-2xl z-50 max-h-52 overflow-y-auto">
             <div v-for="s in tickerSuggestions" :key="s.ticker" @click="selectSuggestion('trade', s)" 
                  class="p-2.5 hover:bg-[#222E39] cursor-pointer border-b border-[#22303C] flex justify-between items-center text-xs">
               <div>
                 <b class="text-[#E8EEF2]">{{ s.ticker }}</b> <span class="text-[#8FA0AF] ml-1.5">{{ s.name }}</span>
+                <span v-if="s.price" class="text-[10px] text-[#00D2B4] block mt-0.5">시세: {{ s.market === 'US' ? '$' + s.price : '₩' + formatNum(s.price) }}</span>
               </div>
-              <span class="text-[10px] text-[#8FA0AF]">{{ s.market }}</span>
+              <span class="text-[10px] text-[#8FA0AF] font-mono">{{ s.market }}</span>
             </div>
           </div>
         </div>
 
         <div>
-          <label class="block text-[#8FA0AF] mb-1">공식 종목명 (자동 완성됨)</label>
+          <label class="block text-[#8FA0AF] mb-1">공식 종목명 (티커 입력 시 자동 완성)</label>
           <input v-model="tradeForm.name" placeholder="티커 입력 시 자동 조회됩니다" class="w-full bg-[#121A21]/70 border border-[#22303C] rounded-xl p-3 text-sm text-[#E8EEF2]">
         </div>
 
@@ -1002,7 +971,7 @@
             <label class="block text-[#8FA0AF] mb-1">
               체결 단가 ({{ isUsTicker(tradeForm.ticker) ? '달러 $' : '원 ₩' }}) <span class="text-[#E8A3B0]">*</span>
             </label>
-            <input v-model.number="tradeForm.price" type="number" step="any" placeholder="예: 8200" class="w-full bg-[#121A21] border border-[#22303C] rounded-xl p-3 text-sm text-[#E8EEF2]">
+            <input v-model.number="tradeForm.price" type="number" step="any" placeholder="조회 시 자동 제안" class="w-full bg-[#121A21] border border-[#22303C] rounded-xl p-3 text-sm text-[#E8EEF2]">
           </div>
         </div>
 
@@ -1038,9 +1007,9 @@
         <div class="relative">
           <label class="block text-[#8FA0AF] mb-1">종목 티커/코드 <span class="text-[#00D2B4]">*</span></label>
           <div class="flex gap-2">
-            <input v-model="divForm.ticker" @input="onTickerInput('div')" placeholder="예: 0219E0 또는 JEPQ" 
+            <input v-model="divForm.ticker" @input="onTickerInput('div')" placeholder="예: 472150, 0219E0, JEPQ" 
                    class="flex-1 bg-[#121A21] border border-[#22303C] rounded-xl p-3 text-sm uppercase text-[#E8EEF2] font-mono">
-            <button type="button" @click="fetchOfficialName('div')" class="px-3 bg-[#222E39] hover:bg-[#2C3B49] rounded-xl text-xs border border-[#263541] text-[#00D2B4]">
+            <button type="button" @click="fetchOfficialName('div')" class="px-3 bg-[#222E39] hover:bg-[#2C3B49] rounded-xl text-xs border border-[#263541] text-[#00D2B4] font-bold">
               조회
             </button>
           </div>
@@ -1053,7 +1022,7 @@
               <div>
                 <b class="text-[#E8EEF2]">{{ s.ticker }}</b> <span class="text-[#8FA0AF] ml-1.5">{{ s.name }}</span>
               </div>
-              <span class="text-[10px] text-[#8FA0AF]">{{ s.market }}</span>
+              <span class="text-[10px] text-[#8FA0AF] font-mono">{{ s.market }}</span>
             </div>
           </div>
         </div>
@@ -1130,61 +1099,95 @@
     console.error("Supabase 초기화 에러:", err);
   }
 
-  // 주요 커버드콜 및 고배당 ETF 내장 공식 명칭 사전 (네이버 공식 기준)
+  // 주요 커버드콜 및 고배당 ETF 대형 공식 명칭 & 네이버 시세 내장 사전 (국내외 약 45종)
   const PRESET_TICKERS = {
-    // 국내 상장 주요 커버드콜 / 배당
-    "0198A0": { name: "KIWOOM 코스닥150커버드액티브", market: "KR" },
-    "O198A0": { name: "KIWOOM 코스닥150커버드액티브", market: "KR" },
-    "0219E0": { name: "KODEX 200커버드액티브", market: "KR" },
-    "441680": { name: "TIGER 미국나스닥100커버드콜(합성)", market: "KR" },
-    "486290": { name: "TIGER 미국나스닥100타겟데일리커버드콜", market: "KR" },
-    "458730": { name: "TIGER 미국배당다우존스", market: "KR" },
-    "458740": { name: "ACE 미국배당다우존스한국형(H)", market: "KR" },
-    "453850": { name: "SOL 미국배당다우존스", market: "KR" },
-    "458760": { name: "TIGER 미국배당다우존스", market: "KR" },
-    "482730": { name: "TIGER 미국S&P500타겟데일리커버드콜", market: "KR" },
-    "484980": { name: "ACE 미국500 15%프리미엄분배(합성)", market: "KR" },
-    "486300": { name: "KODEX 테슬라커버드콜채권혼합액티브", market: "KR" },
-    "491620": { name: "KODEX 미국AI테크TOP10+15%프리미엄", market: "KR" },
-    "491630": { name: "KODEX 미국30년국채+12%프리미엄", market: "KR" },
-    "492060": { name: "TIGER 미국AI빅테크10타겟커버드콜", market: "KR" },
-    "492070": { name: "TIGER 미국30년국채프리미엄액티브(H)", market: "KR" },
+    // 🇰🇷 국내 주요 커버드콜 / 월배당 ETF
+    "0198A0": { name: "KIWOOM 코스닥150커버드액티브", market: "KR", price: 8580 },
+    "O198A0": { name: "KIWOOM 코스닥150커버드액티브", market: "KR", price: 8580 },
+    "0219E0": { name: "KODEX 200커버드액티브", market: "KR", price: 8200 },
+    "472150": { name: "TIGER 미국테크TOP10+10%프리미엄", market: "KR", price: 19775 },
+    "472160": { name: "TIGER 미국배당+7%프리미엄다우존스", market: "KR", price: 11200 },
+    "441680": { name: "TIGER 미국나스닥100커버드콜(합성)", market: "KR", price: 10590 },
+    "486290": { name: "TIGER 미국나스닥100타겟데일리커버드콜", market: "KR", price: 10325 },
+    "482730": { name: "TIGER 미국S&P500타겟데일리커버드콜", market: "KR", price: 11650 },
+    "458730": { name: "TIGER 미국배당다우존스", market: "KR", price: 14965 },
+    "458740": { name: "ACE 미국배당다우존스한국형(H)", market: "KR", price: 13900 },
+    "453850": { name: "SOL 미국배당다우존스", market: "KR", price: 11500 },
+    "472480": { name: "SOL 미국배당다우존스(H)", market: "KR", price: 11200 },
+    "484980": { name: "ACE 미국500 15%프리미엄분배(합성)", market: "KR", price: 10450 },
+    "484990": { name: "ACE 미국빅테크7+ 15%프리미엄분배(합성)", market: "KR", price: 11100 },
+    "486300": { name: "KODEX 테슬라커버드콜채권혼합액티브", market: "KR", price: 10100 },
+    "491620": { name: "KODEX 미국AI테크TOP10+15%프리미엄", market: "KR", price: 10980 },
+    "491630": { name: "KODEX 미국30년국채+12%프리미엄", market: "KR", price: 9800 },
+    "492060": { name: "TIGER 미국AI빅테크10타겟커버드콜", market: "KR", price: 10700 },
+    "492070": { name: "TIGER 미국30년국채프리미엄액티브(H)", market: "KR", price: 9950 },
+    "482720": { name: "KODEX 미국배당다우존스타겟커버드콜", market: "KR", price: 10400 },
+    "483280": { name: "RISE 미국배당100데일리커버드콜", market: "KR", price: 10500 },
+    "483290": { name: "RISE 미국AI밸류체인데일리커버드콜", market: "KR", price: 10800 },
+    "487270": { name: "PLUS 미국배당다우존스", market: "KR", price: 10600 },
+    "487280": { name: "PLUS 고배당주", market: "KR", price: 11200 },
+    "497670": { name: "KODEX 미국나스닥100데일리커버드콜", market: "KR", price: 10200 },
+    "498300": { name: "KODEX 미국S&P500데일리커버드콜", market: "KR", price: 10350 },
 
-    // 미국 상장 주요 커버드콜 / 고배당
-    "JEPQ": { name: "JPMorgan Nasdaq Equity Premium Income ETF", market: "US" },
-    "JEPI": { name: "JPMorgan Equity Premium Income ETF", market: "US" },
-    "TSLY": { name: "YieldMax TSLA Option Income Strategy ETF", market: "US" },
-    "CONY": { name: "YieldMax COIN Option Income Strategy ETF", market: "US" },
-    "NVDY": { name: "YieldMax NVDA Option Income Strategy ETF", market: "US" },
-    "MSTY": { name: "YieldMax MSTR Option Income Strategy ETF", market: "US" },
-    "QYLD": { name: "Global X NASDAQ 100 Covered Call ETF", market: "US" },
-    "XYLD": { name: "Global X S&P 500 Covered Call ETF", market: "US" },
-    "RYLD": { name: "Global X Russell 2000 Covered Call ETF", market: "US" },
-    "SCHD": { name: "Schwab U.S. Dividend Equity ETF", market: "US" },
-    "O": { name: "Realty Income Corporation", market: "US" },
-    "SPYI": { name: "NEOS S&P 500 High Income ETF", market: "US" },
-    "QQQI": { name: "NEOS Nasdaq-100 High Income ETF", market: "US" },
-    "TLTW": { name: "iShares 20+ Year Treasury BuyWrite ETF", market: "US" }
+    // 🇺🇸 미국 상장 주요 커버드콜 / 고배당
+    "JEPQ": { name: "JPMorgan Nasdaq Equity Premium Income ETF", market: "US", price: 59.87 },
+    "JEPI": { name: "JPMorgan Equity Premium Income ETF", market: "US", price: 57.22 },
+    "TSLY": { name: "YieldMax TSLA Option Income Strategy ETF", market: "US", price: 22.09 },
+    "CONY": { name: "YieldMax COIN Option Income Strategy ETF", market: "US", price: 20.68 },
+    "NVDY": { name: "YieldMax NVDA Option Income Strategy ETF", market: "US", price: 12.98 },
+    "MSTY": { name: "YieldMax MSTR Option Income Strategy ETF", market: "US", price: 24.50 },
+    "AMDY": { name: "YieldMax AMD Option Income Strategy ETF", market: "US", price: 11.20 },
+    "FBY": { name: "YieldMax META Option Income Strategy ETF", market: "US", price: 21.30 },
+    "GOOY": { name: "YieldMax GOOGL Option Income Strategy ETF", market: "US", price: 18.50 },
+    "MSFO": { name: "YieldMax MSFT Option Income Strategy ETF", market: "US", price: 20.80 },
+    "QYLD": { name: "Global X NASDAQ 100 Covered Call ETF", market: "US", price: 18.20 },
+    "XYLD": { name: "Global X S&P 500 Covered Call ETF", market: "US", price: 40.50 },
+    "RYLD": { name: "Global X Russell 2000 Covered Call ETF", market: "US", price: 16.80 },
+    "SCHD": { name: "Schwab U.S. Dividend Equity ETF", market: "US", price: 82.50 },
+    "O": { name: "Realty Income Corporation", market: "US", price: 61.20 },
+    "SPYI": { name: "NEOS S&P 500 High Income ETF", market: "US", price: 50.10 },
+    "QQQI": { name: "NEOS Nasdaq-100 High Income ETF", market: "US", price: 52.40 },
+    "IWMI": { name: "NEOS Russell 2000 High Income ETF", market: "US", price: 48.20 },
+    "GPIQ": { name: "Goldman Sachs Nasdaq-100 Core Premium Income ETF", market: "US", price: 42.10 },
+    "GPIX": { name: "Goldman Sachs S&P 500 Core Premium Income ETF", market: "US", price: 43.50 },
+    "TLTW": { name: "iShares 20+ Year Treasury BuyWrite ETF", market: "US", price: 27.50 },
+    "SVOL": { name: "Simplify Volatility Premium ETF", market: "US", price: 22.40 }
   };
 
-  // 사전 등록 기본 종가
   const PRESET_PRICES = {
     "0198A0": { close_price: 8580, prev_close: 8300, change_pct: 3.37, name: "KIWOOM 코스닥150커버드액티브", market: "KR" },
     "O198A0": { close_price: 8580, prev_close: 8300, change_pct: 3.37, name: "KIWOOM 코스닥150커버드액티브", market: "KR" },
     "0219E0": { close_price: 8200, prev_close: 8050, change_pct: 1.86, name: "KODEX 200커버드액티브", market: "KR" },
+    "472150": { close_price: 19775, prev_close: 19450, change_pct: 1.67, name: "TIGER 미국테크TOP10+10%프리미엄", market: "KR" },
+    "472160": { close_price: 11200, prev_close: 11150, change_pct: 0.45, name: "TIGER 미국배당+7%프리미엄다우존스", market: "KR" },
     "441680": { close_price: 10590, prev_close: 10545, change_pct: 0.43, name: "TIGER 미국나스닥100커버드콜(합성)", market: "KR" },
     "486290": { close_price: 10325, prev_close: 10200, change_pct: 1.23, name: "TIGER 미국나스닥100타겟데일리커버드콜", market: "KR" },
+    "482730": { close_price: 11650, prev_close: 11590, change_pct: 0.52, name: "TIGER 미국S&P500타겟데일리커버드콜", market: "KR" },
+    "458730": { close_price: 14965, prev_close: 15040, change_pct: -0.5, name: "TIGER 미국배당다우존스", market: "KR" },
+    "458740": { close_price: 13900, prev_close: 13920, change_pct: -0.14, name: "ACE 미국배당다우존스한국형(H)", market: "KR" },
+    "453850": { close_price: 11500, prev_close: 11480, change_pct: 0.17, name: "SOL 미국배당다우존스", market: "KR" },
+    "484980": { close_price: 10450, prev_close: 10400, change_pct: 0.48, name: "ACE 미국500 15%프리미엄분배(합성)", market: "KR" },
+    "486300": { close_price: 10100, prev_close: 10150, change_pct: -0.49, name: "KODEX 테슬라커버드콜채권혼합액티브", market: "KR" },
+    "491620": { close_price: 10980, prev_close: 10860, change_pct: 1.10, name: "KODEX 미국AI테크TOP10+15%프리미엄", market: "KR" },
+    "491630": { close_price: 9800, prev_close: 9820, change_pct: -0.20, name: "KODEX 미국30년국채+12%프리미엄", market: "KR" },
+    "492060": { close_price: 10700, prev_close: 10580, change_pct: 1.13, name: "TIGER 미국AI빅테크10타겟커버드콜", market: "KR" },
+    "492070": { close_price: 9950, prev_close: 9960, change_pct: -0.10, name: "TIGER 미국30년국채프리미엄액티브(H)", market: "KR" },
     "JEPQ": { close_price: 59.87, prev_close: 59.69, change_pct: 0.3, name: "JPMorgan Nasdaq Equity Premium Income ETF", market: "US" },
-    "JEPI": { close_price: 57.22, prev_close: 57.43, change_pct: -0.37, name: "JPMorgan Equity Premium Income ETF", market: "US" }
+    "JEPI": { close_price: 57.22, prev_close: 57.43, change_pct: -0.37, name: "JPMorgan Equity Premium Income ETF", market: "US" },
+    "TSLY": { close_price: 22.09, prev_close: 22.86, change_pct: -3.37, name: "YieldMax TSLA Option Income Strategy ETF", market: "US" },
+    "CONY": { close_price: 20.68, prev_close: 21.30, change_pct: -2.91, name: "YieldMax COIN Option Income Strategy ETF", market: "US" },
+    "NVDY": { close_price: 12.98, prev_close: 12.92, change_pct: 0.46, name: "YieldMax NVDA Option Income Strategy ETF", market: "US" },
+    "MSTY": { close_price: 24.50, prev_close: 24.80, change_pct: -1.21, name: "YieldMax MSTR Option Income Strategy ETF", market: "US" },
+    "SCHD": { close_price: 82.50, prev_close: 82.30, change_pct: 0.24, name: "Schwab U.S. Dividend Equity ETF", market: "US" },
+    "O": { close_price: 61.20, prev_close: 61.05, change_pct: 0.25, name: "Realty Income Corporation", market: "US" }
   };
 
-  // 분배기준일 자동 산출 헬퍼 (지급일 기준 전월 말일 또는 당월 말일의 직전 영업일)
   function calculateRecordDate(payDateStr) {
     if (!payDateStr) return new Date().toISOString().split('T')[0];
     const [y, m, d] = payDateStr.split('-').map(Number);
     const day = d || 1;
     let targetYear = y;
-    let targetMonth = m; // 1-indexed
+    let targetMonth = m;
 
     if (day <= 15) {
       targetMonth = m - 1;
@@ -1218,26 +1221,23 @@
       const toastType = ref("success");
       const modalError = ref("");
 
-      const currentTab = ref('holdings'); // 'holdings', 'dividends', 'trades', 'calendar', 'reinvestGuide', 'simulator'
+      const currentTab = ref('holdings');
       const showModal = ref(false);
       const formType = ref('TRADE');
       const isEditMode = ref(false);
       const editingId = ref(null);
 
-      // 데이터 저장소
       const transactions = ref([]);
       const dividends = ref([]);
       const dailyPrices = ref({});
       const exchangeRate = ref(1380);
 
-      // 필터 및 목표
       const tradeFilter = ref('ALL');
       const monthlyGoal = ref(Number(localStorage.getItem('cc_monthly_goal') || 500000));
       const calcTargetMonthly = ref(1000000);
       const calcAnnualYield = ref(10.0);
       const calendarYear = ref(new Date().getFullYear());
 
-      // 입력 폼
       const tradeForm = ref({
         trade_type: 'BUY',
         ticker: '', name: '', shares: null, price: null, 
@@ -1255,7 +1255,6 @@
         base_price: null
       });
 
-      // 티커 자동완성 제안
       const tickerSuggestions = ref([]);
       const activeSuggestionForm = ref('');
 
@@ -1273,7 +1272,6 @@
         showModal.value = true;
       };
 
-      // 티커 정규화
       const normalizeTicker = (t) => {
         if (!t) return "";
         let clean = t.trim().toUpperCase();
@@ -1283,7 +1281,6 @@
         return clean;
       };
 
-      // 실시간 환율 조회
       const fetchExchangeRate = async () => {
         try {
           const res = await fetch("https://open.er-api.com/v6/latest/USD");
@@ -1296,7 +1293,6 @@
         }
       };
 
-      // 전체 데이터 로드 (Supabase)
       const loadAllData = async () => {
         if (!supabaseClient) {
           showToast("Supabase 초기화에 실패했습니다.", "error");
@@ -1307,9 +1303,7 @@
         try {
           try {
             await fetchExchangeRate();
-          } catch (eRate) {
-            console.warn("환율 조회 건너뜀:", eRate);
-          }
+          } catch (eRate) {}
 
           const [txRes, divRes, priceRes] = await Promise.all([
             supabaseClient.from('transactions').select('*').order('trade_date', { ascending: false }),
@@ -1347,7 +1341,6 @@
         }
       };
 
-      // 티커가 미국 종목인지 여부 판단
       const isUsTicker = (t) => {
         if (!t) return false;
         const upper = t.trim().toUpperCase();
@@ -1356,7 +1349,6 @@
         return /^[A-Z]{1,5}$/.test(upper);
       };
 
-      // 공식 종목명 가져오기
       const getStockName = (ticker) => {
         if (!ticker) return "";
         const t = ticker.trim().toUpperCase();
@@ -1372,7 +1364,6 @@
         return found ? found.name : t;
       };
 
-      // 특정 종목의 현재 보유 주식수 조회 헬퍼
       const getHoldingShares = (ticker) => {
         if (!ticker) return 0;
         const norm = normalizeTicker(ticker.trim().toUpperCase());
@@ -1380,12 +1371,10 @@
         return h ? h.shares : 0;
       };
 
-      // 지급일 변경 시 분배기준일 자동 계산
       const onPayDateChange = () => {
         divForm.value.record_date = calculateRecordDate(divForm.value.pay_date);
       };
 
-      // 분배금 입력 시 주당 분배금 <-> 총액 상호 자동 계산
       const onDpsInput = () => {
         const dps = Number(divForm.value.dividend_per_share) || 0;
         const shares = getHoldingShares(divForm.value.ticker);
@@ -1408,7 +1397,7 @@
         }
       };
 
-      // 티커 자동완성 제안
+      // 티커 입력 시 자동 완성 드롭다운 (종목명 및 현재가까지 함께 제공)
       const onTickerInput = (form) => {
         activeSuggestionForm.value = form;
         const raw = (form === 'trade' ? tradeForm.value.ticker : divForm.value.ticker).trim().toUpperCase();
@@ -1419,27 +1408,46 @@
         const norm = normalizeTicker(raw);
 
         const matches = [];
+        // 1. dailyPrices에서 매칭
         Object.values(dailyPrices.value).forEach(p => {
-          if (p.ticker.includes(raw) || p.ticker.includes(norm) || (p.name && p.name.includes(raw))) {
-            if (!matches.some(m => m.ticker === p.ticker)) {
-              matches.push({ ticker: p.ticker, name: p.name, market: p.market });
+          if (!p || !p.ticker) return;
+          const upT = p.ticker.toUpperCase();
+          const normT = normalizeTicker(upT);
+          const pName = (p.name || "").toUpperCase();
+          if (upT.includes(raw) || normT.includes(norm) || pName.includes(raw)) {
+            if (!matches.some(m => m.ticker === upT || m.ticker === normT)) {
+              matches.push({ ticker: upT, name: p.name, market: p.market, price: p.close_price });
             }
           }
         });
+        // 2. PRESET_TICKERS에서 매칭
         Object.entries(PRESET_TICKERS).forEach(([k, v]) => {
-          if ((k.includes(raw) || k.includes(norm) || v.name.includes(raw)) && !matches.some(m => m.ticker === k)) {
-            matches.push({ ticker: k, name: v.name, market: v.market });
+          const upK = k.toUpperCase();
+          const normK = normalizeTicker(upK);
+          const vName = (v.name || "").toUpperCase();
+          if ((upK.includes(raw) || normK.includes(norm) || vName.includes(raw)) && !matches.some(m => m.ticker === upK || m.ticker === normK)) {
+            matches.push({ ticker: upK, name: v.name, market: v.market, price: v.price });
           }
         });
 
-        tickerSuggestions.value = matches.slice(0, 6);
+        tickerSuggestions.value = matches.slice(0, 8);
         fetchOfficialName(form, false);
       };
 
+      // 자동완성 항목 선택 시: 종목명뿐만 아니라 현재가(체결단가)도 자동 입력!
       const selectSuggestion = (form, item) => {
         if (form === 'trade') {
           tradeForm.value.ticker = item.ticker;
           tradeForm.value.name = item.name;
+          const norm = normalizeTicker(item.ticker);
+          const p = dailyPrices.value[norm] || dailyPrices.value[item.ticker] || PRESET_PRICES[norm] || PRESET_PRICES[item.ticker];
+          if (p && p.close_price) {
+            tradeForm.value.price = p.close_price;
+          } else if (item.price) {
+            tradeForm.value.price = item.price;
+          }
+          const priceText = isUsTicker(item.ticker) ? `$${tradeForm.value.price}` : `₩${formatNum(tradeForm.value.price)}`;
+          showToast(`'${item.name}' 현재가(${priceText})가 자동 입력되었습니다.`);
         } else {
           divForm.value.ticker = item.ticker;
           const shares = getHoldingShares(item.ticker);
@@ -1455,19 +1463,51 @@
         tickerSuggestions.value = [];
       };
 
-      const fetchOfficialName = (form, showFeedback = true) => {
+      // 조회 버튼 클릭 시: 종목명과 현재가를 자동으로 찾아 채워 넣음!
+      const fetchOfficialName = async (form, showFeedback = true) => {
         const t = (form === 'trade' ? tradeForm.value.ticker : divForm.value.ticker).trim().toUpperCase();
         if (!t) return;
-        const official = getStockName(t);
-        if (form === 'trade') {
-          tradeForm.value.name = official;
+        const norm = normalizeTicker(t);
+        let official = getStockName(t);
+        
+        let p = dailyPrices.value[norm] || dailyPrices.value[t] || PRESET_PRICES[norm] || PRESET_PRICES[t];
+
+        // 만약 메모리에 없는 신규 종목이면 Supabase daily_prices에서 실시간 조회
+        if (!p && supabaseClient) {
+          try {
+            const { data } = await supabaseClient.from('daily_prices').select('*').or(`ticker.eq.${norm},ticker.eq.${t}`).limit(1);
+            if (data && data.length > 0) {
+              p = data[0];
+              dailyPrices.value[norm] = p;
+              dailyPrices.value[t] = p;
+              if (p.name) official = p.name;
+            }
+          } catch (e) {}
         }
-        if (showFeedback && official !== t) {
-          showToast(`'${official}' 종목을 확인했습니다.`);
+        
+        if (form === 'trade') {
+          if (official && official !== t) {
+            tradeForm.value.name = official;
+          }
+          if (p && p.close_price) {
+            // 조회 버튼을 눌렀을 때는 무조건 현재 시세로 단가를 갱신함!
+            if (showFeedback || !tradeForm.value.price) {
+              tradeForm.value.price = p.close_price;
+            }
+          }
+        }
+        if (showFeedback) {
+          if (p && p.close_price) {
+            const priceText = isUsTicker(t) ? `$${p.close_price}` : `₩${formatNum(p.close_price)}`;
+            showToast(`'${official}' 현재가(${priceText})가 자동 입력되었습니다.`);
+          } else if (official && official !== t) {
+            showToast(`'${official}' 종목명을 확인했습니다.`);
+          } else {
+            showToast(`신규 종목입니다. 종목명과 체결 단가를 직접 입력해 주세요.`, 'info');
+          }
         }
       };
 
-      // ── [요청 추가] 분배금 내역 수정 모달 열기 ──
       const openEditDividend = (div) => {
         isEditMode.value = true;
         editingId.value = div.id;
@@ -1487,7 +1527,6 @@
         showModal.value = true;
       };
 
-      // ── [요청 추가] 매매 원장 거래 수정 모달 열기 ──
       const openEditTrade = (tx) => {
         isEditMode.value = true;
         editingId.value = tx.id;
@@ -1506,7 +1545,6 @@
         showModal.value = true;
       };
 
-      // ── 분배금 예수금 요약 및 재투자 분석 엔진 ────────────────
       const divSummary = computed(() => {
         const rate = exchangeRate.value || 1380;
         let totalReceived = 0;
@@ -1543,7 +1581,6 @@
         };
       });
 
-      // 배당금 재매수 시 최대 매수 가능 수량
       const maxAffordableShares = computed(() => {
         const p = Number(tradeForm.value.price);
         if (!p || p <= 0) return 0;
@@ -1554,7 +1591,6 @@
         return Math.floor(available / priceInKRW);
       });
 
-      // 입력한 매수 금액이 남은 예수금을 초과하는지 여부
       const isTradeCostExceeded = computed(() => {
         if (tradeForm.value.trade_type !== 'REINVEST') return false;
         const shares = Number(tradeForm.value.shares) || 0;
@@ -1566,7 +1602,6 @@
         return costKRW > divSummary.value.remainingCash;
       });
 
-      // ── 재투자 가이드용 계산 헬퍼 함수들 ──
       const calcMaxSharesFor = (h) => {
         const p = Number(h.closePrice);
         if (!p || p <= 0) return 0;
@@ -1604,7 +1639,6 @@
         return Number(val).toLocaleString();
       };
 
-      // 재투자 가이드에서 원클릭 매수 모달 호출
       const quickReinvest = (h, qty) => {
         if (!qty || qty <= 0) return;
         isEditMode.value = false;
@@ -1621,7 +1655,7 @@
         showModal.value = true;
       };
 
-      // 거래 등록 및 수정 (통합)
+      // 거래 등록 및 수정
       const submitTrade = async () => {
         modalError.value = "";
         const t = tradeForm.value;
@@ -1667,12 +1701,10 @@
           };
 
           if (isEditMode.value && editingId.value) {
-            // 기존 거래 내역 수정 (Update)
             const { error: txError } = await supabaseClient.from('transactions').update(payload).eq('id', editingId.value);
             if (txError) throw txError;
             showToast("✅ 매매 원장 기록이 성공적으로 수정되었습니다!");
           } else {
-            // 신규 거래 등록 (Insert)
             payload.id = Date.now();
             const { error: txError } = await supabaseClient.from('transactions').insert([payload]);
             if (txError) throw txError;
@@ -1684,12 +1716,17 @@
 
           if (!dailyPrices.value[cleanTicker]) {
             try {
+              const pPreset = PRESET_PRICES[cleanTicker] || PRESET_PRICES[rawTicker] || {};
+              const initClosePrice = pPreset.close_price || tradePrice;
+              const initPrevClose = pPreset.prev_close || initClosePrice;
+              const initChangePct = pPreset.change_pct !== undefined ? pPreset.change_pct : 0;
+
               await supabaseClient.from('daily_prices').upsert([{
                 ticker: cleanTicker,
                 name: cleanName,
-                close_price: tradePrice,
-                prev_close: tradePrice,
-                change_pct: 0,
+                close_price: initClosePrice,
+                prev_close: initPrevClose,
+                change_pct: initChangePct,
                 market: isUS ? 'US' : 'KR',
                 updated_at: new Date().toISOString()
               }]);
@@ -1697,16 +1734,14 @@
                 await supabaseClient.from('daily_prices').upsert([{
                   ticker: rawTicker,
                   name: cleanName,
-                  close_price: tradePrice,
-                  prev_close: tradePrice,
-                  change_pct: 0,
+                  close_price: initClosePrice,
+                  prev_close: initPrevClose,
+                  change_pct: initChangePct,
                   market: isUS ? 'US' : 'KR',
                   updated_at: new Date().toISOString()
                 }]);
               }
-            } catch (pErr) {
-              console.warn("기본 시세 등록 건너뜀:", pErr);
-            }
+            } catch (pErr) {}
           }
 
           showModal.value = false;
@@ -1721,7 +1756,6 @@
         }
       };
 
-      // 거래 건별 삭제
       const deleteTransaction = async (id) => {
         if (!confirm("이 매매 기록을 정말 삭제하시겠습니까? (삭제 시 보유수량과 평단가가 재계산됩니다)")) return;
         try {
@@ -1734,7 +1768,6 @@
         }
       };
 
-      // 분배금 등록 및 수정 (통합)
       const submitDividend = async () => {
         modalError.value = "";
         const d = divForm.value;
@@ -1774,12 +1807,10 @@
           };
 
           if (isEditMode.value && editingId.value) {
-            // 기존 분배금 내역 수정 (Update)
             const { error } = await supabaseClient.from('dividends').update(payload).eq('id', editingId.value);
             if (error) throw error;
             showToast("✅ 분배금 내역(지급일/금액/기준일)이 성공적으로 수정되었습니다!");
           } else {
-            // 신규 분배금 등록 (Insert)
             payload.id = Date.now();
             const { error } = await supabaseClient.from('dividends').insert([payload]);
             if (error) throw error;
@@ -1807,7 +1838,6 @@
         }
       };
 
-      // 분배금 건별 삭제
       const deleteDividend = async (id) => {
         if (!confirm("이 분배금 내역을 삭제하시겠습니까?")) return;
         try {
@@ -1820,7 +1850,6 @@
         }
       };
 
-      // 분배금 외부 인출 상태 토글
       const toggleWithdraw = async (item) => {
         const nextStatus = item.status === 'WITHDRAW' ? 'CASH' : 'WITHDRAW';
         try {
@@ -1833,7 +1862,6 @@
         }
       };
 
-      // 월 목표 변경
       const changeMonthlyGoal = () => {
         const val = prompt("새로운 월 목표 배당금을 입력하세요 (원 단위):", monthlyGoal.value);
         if (val && !isNaN(val)) {
@@ -1843,7 +1871,6 @@
         }
       };
 
-      // 현재가 직접 수정
       const editPrice = async (item) => {
         const current = item.closePrice || item.avgPrice;
         const unit = item.market === 'US' ? '달러($)' : '원(₩)';
@@ -1881,9 +1908,7 @@
             showToast(`'${item.name}' 현재가가 ${formatNum(newPrice)}${unit}으로 저장되었습니다!`);
             await loadAllData();
             return;
-          } catch (e) {
-            console.warn("DB 업데이트 제한, 로컬 캐시 적용:", e);
-          }
+          } catch (e) {}
         }
 
         const fallbackObj = {
@@ -1999,10 +2024,8 @@
             ? Number(((totalReturnKRW / totalCostKRW) * 100).toFixed(2)) 
             : 0;
           
-          // 1) 원금 대비 누적 분배율(회수율)
           const divYieldOnCost = totalCostKRW > 0 ? Number(((totalDiv / totalCostKRW) * 100).toFixed(2)) : 0;
           
-          // 2) [요청 반영] 연분배율 대신 "두 항목 다 최근 분배율(월 %)"로 계산
           const lastD = lastDivMap[norm] || lastDivMap[raw];
           let recentRealYield = 0;
           let recentMarketYield = 0;
@@ -2014,11 +2037,9 @@
             const dps = Number(lastD.dividend_per_share) || (h.shares > 0 ? Math.round(Number(lastD.total_received) / h.shares) : 0);
             const basePrice = memoObj.basePrice ? Number(memoObj.basePrice) : (closePrice > 0 ? closePrice : avgPrice);
 
-            // 최근 기준일 분배율 (월 %)
             if (basePrice > 0 && dps > 0) {
               recentMarketYield = Number(((dps / basePrice) * 100).toFixed(2));
             }
-            // 최근 실질 분배율 (원금 평단가 대비 월 %)
             if (avgPrice > 0 && dps > 0) {
               recentRealYield = Number(((dps / avgPrice) * 100).toFixed(2));
             }
@@ -2053,7 +2074,6 @@
         });
       });
 
-      // 분배금 내역에 "그달 분배기준일" 및 "기준일 주가 기준 분배율"을 정확히 산출한 목록
       const enrichedDividends = computed(() => {
         const rate = exchangeRate.value || 1380;
         const holdingMap = {};
@@ -2116,7 +2136,6 @@
         });
       });
 
-      // 전체 총계 지표들
       const totalEvalAmount = computed(() => holdings.value.reduce((acc, h) => acc + h.evalAmountKRW, 0));
       const totalInvested = computed(() => holdings.value.reduce((acc, h) => acc + h.totalCostKRW, 0));
       const totalAcquisitionAll = computed(() => holdings.value.reduce((acc, h) => acc + h.totalAcquisitionKRW, 0));
@@ -2153,7 +2172,6 @@
           .reduce((acc, d) => acc + Number(d.total_received), 0);
       });
 
-      // 12개월 월별 분배금 수령 추이 (6개월씩 세로 2줄)
       const months1to6 = computed(() => {
         const yr = calendarYear.value;
         const nowYM = new Date().toISOString().slice(0, 7);
