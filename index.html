@@ -1102,6 +1102,9 @@
   // 주요 커버드콜 및 고배당 ETF 대형 공식 명칭 & 네이버 시세 내장 사전 (국내외 약 45종)
   const PRESET_TICKERS = {
     // 🇰🇷 국내 주요 커버드콜 / 월배당 ETF
+    "498400": { name: "KODEX 200타겟위클리커버드콜", market: "KR", price: 20760 },
+    "498400KOSPI": { name: "KODEX 200타겟위클리커버드콜", market: "KR", price: 20760 },
+    "498410": { name: "KODEX 금융고배당TOP10타겟위클리커버드콜", market: "KR", price: 12030 },
     "0198A0": { name: "KIWOOM 코스닥150커버드액티브", market: "KR", price: 8580 },
     "O198A0": { name: "KIWOOM 코스닥150커버드액티브", market: "KR", price: 8580 },
     "0219E0": { name: "KODEX 200커버드액티브", market: "KR", price: 8200 },
@@ -1155,6 +1158,9 @@
   };
 
   const PRESET_PRICES = {
+    "498400": { close_price: 20760, prev_close: 21170, change_pct: -1.94, name: "KODEX 200타겟위클리커버드콜", market: "KR" },
+    "498400KOSPI": { close_price: 20760, prev_close: 21170, change_pct: -1.94, name: "KODEX 200타겟위클리커버드콜", market: "KR" },
+    "498410": { close_price: 12030, prev_close: 11765, change_pct: 2.25, name: "KODEX 금융고배당TOP10타겟위클리커버드콜", market: "KR" },
     "0198A0": { close_price: 8580, prev_close: 8300, change_pct: 3.37, name: "KIWOOM 코스닥150커버드액티브", market: "KR" },
     "O198A0": { close_price: 8580, prev_close: 8300, change_pct: 3.37, name: "KIWOOM 코스닥150커버드액티브", market: "KR" },
     "0219E0": { close_price: 8200, prev_close: 8050, change_pct: 1.86, name: "KODEX 200커버드액티브", market: "KR" },
@@ -1274,7 +1280,14 @@
 
       const normalizeTicker = (t) => {
         if (!t) return "";
-        let clean = t.trim().toUpperCase();
+        let clean = t.trim().toUpperCase().replace(/\s+/g, '');
+        // 접미사 제거 (KOSPI, KOSDAQ, .KS, .KQ, 코스피, 코스닥)
+        clean = clean.replace(/(\.KS|\.KQ|KOSPI|KOSDAQ|코스피|코스닥)$/i, '');
+        // 국내 HTS 포맷 (A로 시작하는 7자리 -> A 제거)
+        if (clean.length === 7 && clean.startsWith('A')) {
+          clean = clean.slice(1);
+        }
+        // 영문 O 오타 변환 (O198A0 -> 0198A0)
         if (clean.startsWith('O') && clean.length === 6) {
           clean = '0' + clean.slice(1);
         }
@@ -1343,10 +1356,11 @@
 
       const isUsTicker = (t) => {
         if (!t) return false;
+        const norm = normalizeTicker(t);
         const upper = t.trim().toUpperCase();
-        if (PRESET_TICKERS[upper]?.market === 'US') return true;
-        if (dailyPrices.value[upper]?.market === 'US') return true;
-        return /^[A-Z]{1,5}$/.test(upper);
+        if (PRESET_TICKERS[norm]?.market === 'US' || PRESET_TICKERS[upper]?.market === 'US') return true;
+        if (dailyPrices.value[norm]?.market === 'US' || dailyPrices.value[upper]?.market === 'US') return true;
+        return /^[A-Z]{1,5}$/.test(norm);
       };
 
       const getStockName = (ticker) => {
@@ -1414,9 +1428,9 @@
           const upT = p.ticker.toUpperCase();
           const normT = normalizeTicker(upT);
           const pName = (p.name || "").toUpperCase();
-          if (upT.includes(raw) || normT.includes(norm) || pName.includes(raw)) {
-            if (!matches.some(m => m.ticker === upT || m.ticker === normT)) {
-              matches.push({ ticker: upT, name: p.name, market: p.market, price: p.close_price });
+          if (upT.includes(raw) || normT.includes(norm) || pName.includes(raw) || pName.includes(norm)) {
+            if (!matches.some(m => m.ticker === normT || m.ticker === upT)) {
+              matches.push({ ticker: normT || upT, name: p.name, market: p.market, price: p.close_price });
             }
           }
         });
@@ -1425,8 +1439,8 @@
           const upK = k.toUpperCase();
           const normK = normalizeTicker(upK);
           const vName = (v.name || "").toUpperCase();
-          if ((upK.includes(raw) || normK.includes(norm) || vName.includes(raw)) && !matches.some(m => m.ticker === upK || m.ticker === normK)) {
-            matches.push({ ticker: upK, name: v.name, market: v.market, price: v.price });
+          if ((upK.includes(raw) || normK.includes(norm) || vName.includes(raw) || vName.includes(norm)) && !matches.some(m => m.ticker === normK || m.ticker === upK)) {
+            matches.push({ ticker: normK || upK, name: v.name, market: v.market, price: v.price });
           }
         });
 
@@ -1436,25 +1450,24 @@
 
       // 자동완성 항목 선택 시: 종목명뿐만 아니라 현재가(체결단가)도 자동 입력!
       const selectSuggestion = (form, item) => {
+        const norm = normalizeTicker(item.ticker);
         if (form === 'trade') {
-          tradeForm.value.ticker = item.ticker;
+          tradeForm.value.ticker = norm || item.ticker;
           tradeForm.value.name = item.name;
-          const norm = normalizeTicker(item.ticker);
           const p = dailyPrices.value[norm] || dailyPrices.value[item.ticker] || PRESET_PRICES[norm] || PRESET_PRICES[item.ticker];
           if (p && p.close_price) {
             tradeForm.value.price = p.close_price;
           } else if (item.price) {
             tradeForm.value.price = item.price;
           }
-          const priceText = isUsTicker(item.ticker) ? `$${tradeForm.value.price}` : `₩${formatNum(tradeForm.value.price)}`;
+          const priceText = isUsTicker(norm || item.ticker) ? `$${tradeForm.value.price}` : `₩${formatNum(tradeForm.value.price)}`;
           showToast(`'${item.name}' 현재가(${priceText})가 자동 입력되었습니다.`);
         } else {
-          divForm.value.ticker = item.ticker;
-          const shares = getHoldingShares(item.ticker);
+          divForm.value.ticker = norm || item.ticker;
+          const shares = getHoldingShares(norm || item.ticker);
           if (shares > 0 && divForm.value.dividend_per_share) {
             onDpsInput();
           }
-          const norm = normalizeTicker(item.ticker);
           const h = holdings.value.find(hItem => hItem.ticker === norm);
           if (h && !divForm.value.base_price) {
             divForm.value.base_price = h.closePrice || h.avgPrice;
@@ -1465,28 +1478,34 @@
 
       // 조회 버튼 클릭 시: 종목명과 현재가를 자동으로 찾아 채워 넣음!
       const fetchOfficialName = async (form, showFeedback = true) => {
-        const t = (form === 'trade' ? tradeForm.value.ticker : divForm.value.ticker).trim().toUpperCase();
-        if (!t) return;
-        const norm = normalizeTicker(t);
-        let official = getStockName(t);
+        const raw = (form === 'trade' ? tradeForm.value.ticker : divForm.value.ticker).trim().toUpperCase();
+        if (!raw) return;
+        const norm = normalizeTicker(raw);
         
-        let p = dailyPrices.value[norm] || dailyPrices.value[t] || PRESET_PRICES[norm] || PRESET_PRICES[t];
+        // 사용자가 KOSPI 등 접미사를 붙여 입력했으면 정규화된 6자리 티커로 즉시 자동 보정
+        if (norm && (form === 'trade' ? tradeForm.value.ticker : divForm.value.ticker) !== norm) {
+          if (form === 'trade') tradeForm.value.ticker = norm;
+          else divForm.value.ticker = norm;
+        }
+
+        let official = getStockName(norm) || getStockName(raw);
+        let p = dailyPrices.value[norm] || dailyPrices.value[raw] || PRESET_PRICES[norm] || PRESET_PRICES[raw];
 
         // 만약 메모리에 없는 신규 종목이면 Supabase daily_prices에서 실시간 조회
         if (!p && supabaseClient) {
           try {
-            const { data } = await supabaseClient.from('daily_prices').select('*').or(`ticker.eq.${norm},ticker.eq.${t}`).limit(1);
+            const { data } = await supabaseClient.from('daily_prices').select('*').or(`ticker.eq.${norm},ticker.eq.${raw}`).limit(1);
             if (data && data.length > 0) {
               p = data[0];
               dailyPrices.value[norm] = p;
-              dailyPrices.value[t] = p;
+              dailyPrices.value[raw] = p;
               if (p.name) official = p.name;
             }
           } catch (e) {}
         }
         
         if (form === 'trade') {
-          if (official && official !== t) {
+          if (official && official !== norm && official !== raw) {
             tradeForm.value.name = official;
           }
           if (p && p.close_price) {
@@ -1495,12 +1514,16 @@
               tradeForm.value.price = p.close_price;
             }
           }
+        } else {
+          if (p && p.close_price && !divForm.value.base_price) {
+            divForm.value.base_price = p.close_price;
+          }
         }
         if (showFeedback) {
           if (p && p.close_price) {
-            const priceText = isUsTicker(t) ? `$${p.close_price}` : `₩${formatNum(p.close_price)}`;
-            showToast(`'${official}' 현재가(${priceText})가 자동 입력되었습니다.`);
-          } else if (official && official !== t) {
+            const priceText = isUsTicker(norm) ? `$${p.close_price}` : `₩${formatNum(p.close_price)}`;
+            showToast(`'${official || norm}' 현재가(${priceText})가 자동 입력되었습니다.`);
+          } else if (official && official !== norm && official !== raw) {
             showToast(`'${official}' 종목명을 확인했습니다.`);
           } else {
             showToast(`신규 종목입니다. 종목명과 체결 단가를 직접 입력해 주세요.`, 'info');
