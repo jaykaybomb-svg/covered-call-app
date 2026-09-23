@@ -73,6 +73,10 @@
           <span class="text-[#E8EEF2]">Covered Call</span>
           <span class="text-[#00D2B4]">Tracker</span>
         </h1>
+        <div v-if="lastPriceUpdate" class="text-[10px] text-[#8FA0AF] mt-1.5 flex items-center gap-1.5 font-medium">
+          <span class="w-1.5 h-1.5 rounded-full bg-[#00D2B4] animate-pulse"></span>
+          <span>시세 기준: <b class="text-[#E8EEF2]">{{ lastPriceUpdate }}</b></span>
+        </div>
       </div>
 
       <button @click="loadAllData" class="text-xs bg-[#1A242D] hover:bg-[#222E39] text-[#E8EEF2] px-3 py-1.5 rounded-full flex items-center gap-1.5 border border-[#263541] shadow-sm active:scale-95 transition-all flex-shrink-0">
@@ -1345,7 +1349,7 @@
           });
           dailyPrices.value = pMap;
 
-          showToast("네이버 증권 시세 및 원장을 최신으로 갱신했습니다!");
+          showToast("클라우드 시세 및 원장 데이터를 최신으로 동기화했습니다!");
         } catch (e) {
           console.error("데이터 로딩 실패:", e);
           showToast("데이터 불러오기 실패: " + (e.message || e), "error");
@@ -1353,6 +1357,21 @@
           loading.value = false;
         }
       };
+
+      const lastPriceUpdate = computed(() => {
+        const dates = Object.values(dailyPrices.value)
+          .map(p => p.updated_at)
+          .filter(Boolean)
+          .sort()
+          .reverse();
+        if (dates.length === 0) return "";
+        const d = new Date(dates[0]);
+        const m = d.getMonth() + 1;
+        const date = d.getDate();
+        const hh = String(d.getHours()).padStart(2, '0');
+        const mm = String(d.getMinutes()).padStart(2, '0');
+        return `${m}월 ${date}일 ${hh}:${mm}`;
+      });
 
       const isUsTicker = (t) => {
         if (!t) return false;
@@ -2304,7 +2323,7 @@
       });
 
       return {
-        loading, saving, toastMessage, toastType, modalError, currentTab, showModal, formType, isEditMode, editingId,
+        lastPriceUpdate, loading, saving, toastMessage, toastType, modalError, currentTab, showModal, formType, isEditMode, editingId,
         transactions, dividends, enrichedDividends, dailyPrices, exchangeRate, tradeFilter, monthlyGoal, calcTargetMonthly, calcAnnualYield,
         calendarYear, months1to6, months7to12, halfYear1Total, halfYear2Total, calendarYearTotal,
         tradeForm, divForm, tickerSuggestions, activeSuggestionForm, maxAffordableShares, isTradeCostExceeded,
