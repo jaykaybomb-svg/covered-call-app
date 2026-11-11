@@ -1,0 +1,9 @@
+# 개인 장부 백업 파일 (공개 GitHub 업로드 방지)
+covered_call_my_data_v2.json
+covered_call_my_data_v2.xlsx
+covered_call_backup*.json
+*.xlsx
+
+# Python 캐시
+__pycache__/
+*.pyc
