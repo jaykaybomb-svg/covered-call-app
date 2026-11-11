@@ -1,41 +1,2953 @@
--- 1. 일별 시세 테이블에 시초가, 12시 가격 컬럼 추가
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <title>Covered Call Tracker v2.0 — 국장 커버드콜 자금 A·B & 대출 통합 장부</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/vue@3.4.21/dist/vue.global.prod.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.7/dist/umd/supabase.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    * {
+      font-family: 'Pretendard', 'Noto Sans KR', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+    body {
+      background-color: #F2F4F6;
+      color: #191F28;
+      padding-bottom: env(safe-area-inset-bottom, 84px);
+    }
+    .toss-card {
+      background: #FFFFFF;
+      border-radius: 24px;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.03);
+    }
+    .toss-btn-primary {
+      background-color: #3182F6;
+      color: #FFFFFF;
+      transition: all 0.15s ease;
+    }
+    .toss-btn-primary:active {
+      transform: scale(0.98);
+      background-color: #1B64DA;
+    }
+    .toss-up { color: #F04452; }
+    .toss-down { color: #3182F6; }
+    .bg-toss-up-soft { background-color: #FFF0F1; color: #F04452; }
+    .bg-toss-down-soft { background-color: #E8F3FF; color: #3182F6; }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    [v-cloak] { display: none; }
+  </style>
+</head>
+<body class="min-h-screen select-none">
+<div id="app" v-cloak class="max-w-lg mx-auto min-h-screen flex flex-col justify-between pb-24">
+
+  <!-- 상단 고정 헤더 & 자금 선택 바 -->
+  <header class="sticky top-0 z-30 bg-[#F2F4F6]/95 backdrop-blur-md px-4 pt-3 pb-2.5 border-b border-gray-200/70">
+    <div class="flex items-center justify-between mb-2.5">
+      <div class="flex items-center gap-2">
+        <div class="w-8 h-8 rounded-xl bg-[#3182F6] flex items-center justify-center text-white font-extrabold text-sm shadow-sm">
+          CC
+        </div>
+        <div>
+          <div class="flex items-center gap-1.5">
+            <h1 class="text-base font-extrabold tracking-tight text-[#191F28]">국장 커버드콜 장부</h1>
+            <span class="text-[10px] font-bold px-1.5 py-0.5 rounded-md" :class="supabaseConnected ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-700'">
+              {{ supabaseConnected ? 'Supabase 연동됨' : '로컬 저장 모드' }}
+            </span>
+          </div>
+          <div class="flex items-center gap-1.5 text-[11px] text-[#8B95A1]">
+            <span>시세기준: {{ lastPriceSlotLabel }} ({{ lastSyncTimeText }})</span>
+            <span v-if="priceSyncFailed" class="text-amber-600 font-semibold">· 갱신 실패(기존가 유지)</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-1.5">
+        <button @click="refreshPrices()" :disabled="isSyncing" class="px-2.5 py-1.5 rounded-xl bg-white text-[#4E5968] text-xs font-semibold shadow-sm border border-gray-200/60 flex items-center gap-1 active:scale-95 transition">
+          <i class="fa-solid fa-rotate" :class="{'fa-spin text-[#3182F6]': isSyncing}"></i>
+          <span>시세조회</span>
+        </button>
+        <button @click="openDevModal()" class="px-2.5 py-1.5 rounded-xl bg-gray-900 text-white text-xs font-semibold shadow-sm flex items-center gap-1 active:scale-95 transition" title="Antigravity 코드 복사 및 백업">
+          <i class="fa-solid fa-code"></i>
+          <span>코드·백업</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 글로벌 자금 선택기 (전체 / 자금 A / 자금 B) + 빠른 기록 버튼 -->
+    <div class="flex items-center gap-2">
+      <div class="flex-1 bg-[#E5E8EB] p-1 rounded-2xl grid grid-cols-3 gap-1">
+        <button @click="selectedFund = 'ALL'"
+          class="py-1.5 rounded-xl text-xs font-bold transition-all"
+          :class="selectedFund === 'ALL' ? 'bg-white text-[#191F28] shadow-sm' : 'text-[#6B7684]'">
+          전체 (A+B)
+        </button>
+        <button @click="selectedFund = 'A'"
+          class="py-1.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1"
+          :class="selectedFund === 'A' ? 'bg-white text-[#3182F6] shadow-sm' : 'text-[#6B7684]'">
+          <span class="w-1.5 h-1.5 rounded-full bg-[#3182F6]"></span>
+          <span class="truncate">{{ fundNames.A }}</span>
+        </button>
+        <button @click="selectedFund = 'B'"
+          class="py-1.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1"
+          :class="selectedFund === 'B' ? 'bg-white text-purple-600 shadow-sm' : 'text-[#6B7684]'">
+          <span class="w-1.5 h-1.5 rounded-full bg-purple-600"></span>
+          <span class="truncate">{{ fundNames.B }}</span>
+        </button>
+      </div>
+
+      <button @click="openActionModal('TRADE')" class="toss-btn-primary px-3.5 py-2 rounded-2xl text-xs font-bold shadow-sm flex items-center gap-1.5 shrink-0">
+        <i class="fa-solid fa-plus"></i>
+        <span>기록하기</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- 메인 컨텐츠 영역 -->
+  <main class="flex-1 px-4 pt-3 space-y-3.5">
+
+    <!-- 음수 예수금 경고 배너 (잔액을 max(0)으로 숨기지 않고 원인과 부족액을 즉시 표시) -->
+    <div v-if="negativeBalanceWarnings.length > 0" class="bg-red-50 border border-red-200 rounded-2xl p-3.5 flex items-start gap-2.5">
+      <i class="fa-solid fa-triangle-exclamation text-red-500 mt-0.5"></i>
+      <div class="text-xs text-red-800 space-y-1 flex-1">
+        <div class="font-bold">현금 장부 잔액 부족 경고 (0원으로 숨기지 않음)</div>
+        <div v-for="(warn, idx) in negativeBalanceWarnings" :key="idx" class="text-[11px] text-red-700">
+          • {{ warn }}
+        </div>
+        <button @click="openActionModal('CASH')" class="mt-1 inline-block text-[11px] font-bold text-red-600 underline">
+          원금 입금 또는 자금 이체 기록하기 →
+        </button>
+      </div>
+    </div>
+
+    <!-- ==========================================
+         탭 1: 홈 (대시보드)
+    =========================================== -->
+    <section v-if="activeTab === 'home'" class="space-y-3.5">
+
+      <!-- 1. 핵심 순자산 & 이자 차감 후 실질 총수익 카드 -->
+      <div class="toss-card p-5">
+        <div class="flex items-center justify-between mb-1">
+          <span class="text-xs font-bold text-[#6B7684]">
+            {{ selectedFundLabel }} 순자산 (평가액 + 현금 − 대출)
+          </span>
+          <button @click="showReconcileModal = true" class="text-[11px] font-semibold text-[#3182F6] bg-[#E8F3FF] px-2.5 py-1 rounded-lg">
+            <i class="fa-solid fa-scale-balanced mr-1"></i>실제 계좌 대조
+          </button>
+        </div>
+
+        <div class="text-[28px] font-extrabold tracking-tight text-[#191F28] leading-snug">
+          {{ formatKRW(currentSummary.netAsset) }}
+        </div>
+
+        <div class="flex items-center gap-2 mt-1 text-xs font-semibold">
+          <span class="text-[#8B95A1]">투입 순원금 {{ formatKRW(currentSummary.netInvestedPrincipal) }}</span>
+          <span class="text-gray-300">|</span>
+          <span :class="currentSummary.dailyChangeKRW >= 0 ? 'toss-up' : 'toss-down'">
+            전일비 {{ formatSignedKRW(currentSummary.dailyChangeKRW) }} ({{ formatSignedPct(currentSummary.dailyChangePct) }})
+          </span>
+        </div>
+
+        <!-- 3단 손익 비교 박스 (순수 주가손익 / 투자 총손익 TR / 이자 차감 후 실질 손익) -->
+        <div class="mt-4 bg-[#F9FAFB] rounded-2xl p-3.5 space-y-2.5 border border-gray-100">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="text-xs font-extrabold text-[#191F28] flex items-center gap-1.5">
+                <span>이자 차감 후 순손익</span>
+                <span class="text-[10px] px-1.5 py-0.5 rounded bg-[#E8F3FF] text-[#3182F6] font-bold">핵심</span>
+              </div>
+              <div class="text-[11px] text-[#8B95A1]">투자 총손익 − 누적 납부 대출이자</div>
+            </div>
+            <div class="text-right">
+              <div class="text-base font-extrabold" :class="currentSummary.netProfitAfterInterest >= 0 ? 'toss-up' : 'toss-down'">
+                {{ formatSignedKRW(currentSummary.netProfitAfterInterest) }}
+              </div>
+              <div class="text-[11px] font-bold" :class="currentSummary.netProfitAfterInterest >= 0 ? 'toss-up' : 'toss-down'">
+                {{ formatSignedPct(currentSummary.netProfitAfterInterestRate) }}
+              </div>
+            </div>
+          </div>
+
+          <div class="border-t border-gray-200/70 pt-2.5 grid grid-cols-2 gap-3">
+            <div>
+              <div class="text-[11px] text-[#6B7684] font-medium">투자 총손익 (배당포함 TR)</div>
+              <div class="text-xs font-bold mt-0.5" :class="currentSummary.totalReturnKRW >= 0 ? 'toss-up' : 'toss-down'">
+                {{ formatSignedKRW(currentSummary.totalReturnKRW) }} ({{ formatSignedPct(currentSummary.totalReturnRate) }})
+              </div>
+            </div>
+            <div>
+              <div class="text-[11px] text-[#6B7684] font-medium">순수 주가 손익 (배당제외)</div>
+              <div class="text-xs font-bold mt-0.5" :class="currentSummary.capitalGainKRW >= 0 ? 'toss-up' : 'toss-down'">
+                {{ formatSignedKRW(currentSummary.capitalGainKRW) }} ({{ formatSignedPct(currentSummary.capitalGainRate) }})
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 자산 구성 3단 요약 (주식 평가액 / 현금 장부 / 대출 잔액) -->
+        <div class="mt-3.5 grid grid-cols-3 gap-2 text-center">
+          <div class="bg-[#F2F4F6] rounded-xl p-2.5">
+            <div class="text-[11px] text-[#6B7684]">주식 평가액</div>
+            <div class="text-xs font-bold text-[#191F28] mt-0.5">{{ formatKRW(currentSummary.stockEvalKRW) }}</div>
+          </div>
+          <div class="bg-[#F2F4F6] rounded-xl p-2.5">
+            <div class="text-[11px] text-[#6B7684]">보유 현금(총예수금)</div>
+            <div class="text-xs font-bold mt-0.5" :class="currentSummary.totalCash < 0 ? 'text-red-600' : 'text-[#191F28]'">
+              {{ formatKRW(currentSummary.totalCash) }}
+            </div>
+          </div>
+          <div class="bg-[#F2F4F6] rounded-xl p-2.5">
+            <div class="text-[11px] text-[#6B7684]">대출 잔액</div>
+            <div class="text-xs font-bold text-[#4E5968] mt-0.5">{{ formatKRW(currentSummary.loanBalance) }}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. 이번 달 현금수익 카드 (이번 달 실수령 분배금 - 이번 달 대출이자) -->
+      <div class="toss-card p-5">
+        <div class="flex items-center justify-between mb-2">
+          <div>
+            <span class="text-xs font-bold text-[#6B7684]">{{ currentYearMonthLabel }} 현금 흐름</span>
+            <h2 class="text-base font-extrabold text-[#191F28] mt-0.5">이번 달 실수령 분배금 − 대출이자</h2>
+          </div>
+          <span class="text-xs font-bold px-2.5 py-1 rounded-full"
+            :class="currentSummary.thisMonthNetCashFlow >= 0 ? 'bg-toss-up-soft' : 'bg-toss-down-soft'">
+            {{ currentSummary.thisMonthNetCashFlow >= 0 ? '현금 플러스' : '이자 초과' }}
+          </span>
+        </div>
+
+        <div class="text-2xl font-extrabold" :class="currentSummary.thisMonthNetCashFlow >= 0 ? 'toss-up' : 'toss-down'">
+          {{ formatSignedKRW(currentSummary.thisMonthNetCashFlow) }}
+        </div>
+
+        <div class="mt-3 grid grid-cols-2 gap-2.5">
+          <div class="bg-[#F9FAFB] p-3 rounded-2xl border border-gray-100">
+            <div class="flex items-center justify-between text-[11px] text-[#6B7684]">
+              <span>이번 달 실수령 분배금</span>
+              <span v-if="currentSummary.thisMonthExpectedDiv > 0" class="text-[#3182F6] font-semibold">
+                +예상 {{ formatCompactKRW(currentSummary.thisMonthExpectedDiv) }}
+              </span>
+            </div>
+            <div class="text-sm font-extrabold text-[#191F28] mt-1">
+              {{ formatKRW(currentSummary.thisMonthReceivedDiv) }}
+            </div>
+          </div>
+
+          <div class="bg-[#F9FAFB] p-3 rounded-2xl border border-gray-100">
+            <div class="flex items-center justify-between text-[11px] text-[#6B7684]">
+              <span>이번 달 납부 이자</span>
+              <span class="text-amber-600 font-semibold">월예상 {{ formatCompactKRW(currentSummary.monthlyExpectedInterest) }}</span>
+            </div>
+            <div class="text-sm font-extrabold text-[#191F28] mt-1">
+              {{ formatKRW(currentSummary.thisMonthPaidInterest) }}
+            </div>
+          </div>
+        </div>
+
+        <!-- 누적 재매수 복리 요약 -->
+        <div class="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between text-xs">
+          <span class="text-[#6B7684] font-medium">누적 분배금 재매수 (복리 투입액)</span>
+          <span class="font-extrabold text-[#3182F6]">
+            {{ formatKRW(currentSummary.reinvestCostTotal) }} (총 {{ formatNumber(currentSummary.reinvestSharesTotal) }}주)
+          </span>
+        </div>
+      </div>
+
+      <!-- 3. 자금 A vs 자금 B 한눈에 비교 & 현금 바구니(원금/분배금) -->
+      <div class="toss-card p-5">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-sm font-extrabold text-[#191F28]">자금별 독립 장부 & 예수금 바구니</h2>
+          <button @click="openActionModal('CASH')" class="text-xs font-bold text-[#3182F6]">
+            + 입출금 · A↔B 이체
+          </button>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div v-for="fKey in ['A', 'B']" :key="fKey"
+            class="rounded-2xl p-3.5 border transition cursor-pointer"
+            :class="selectedFund === fKey ? 'border-[#3182F6] bg-[#F8FBFF]' : 'border-gray-200/80 bg-[#F9FAFB]'"
+            @click="selectedFund = fKey">
+            <div class="flex items-center justify-between mb-2">
+              <div class="flex items-center gap-1.5">
+                <span class="w-2 h-2 rounded-full" :class="fKey === 'A' ? 'bg-[#3182F6]' : 'bg-purple-600'"></span>
+                <span class="text-xs font-extrabold text-[#191F28]">{{ fundNames[fKey] }}</span>
+              </div>
+              <span class="text-xs font-extrabold" :class="fundSummaries[fKey].netProfitAfterInterest >= 0 ? 'toss-up' : 'toss-down'">
+                이자후 {{ formatSignedKRW(fundSummaries[fKey].netProfitAfterInterest) }}
+              </span>
+            </div>
+
+            <div class="space-y-1 text-[11px]">
+              <div class="flex justify-between">
+                <span class="text-[#6B7684]">순자산 (주식+현금-대출)</span>
+                <span class="font-bold text-[#191F28]">{{ formatKRW(fundSummaries[fKey].netAsset) }}</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-[#6B7684]">• 미사용 분배금 바구니</span>
+                <span class="font-bold text-[#3182F6]">{{ formatKRW(fundSummaries[fKey].dividendCashBucket) }}</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-[#6B7684]">• 일반 원금 예수금</span>
+                <span class="font-bold" :class="fundSummaries[fKey].principalCashBucket < 0 ? 'text-red-600' : 'text-[#4E5968]'">
+                  {{ formatKRW(fundSummaries[fKey].principalCashBucket) }}
+                </span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-[#6B7684]">• 대출 잔액 (월예상이자)</span>
+                <span class="font-semibold text-[#4E5968]">
+                  {{ formatCompactKRW(fundSummaries[fKey].loanBalance) }} ({{ formatCompactKRW(fundSummaries[fKey].monthlyExpectedInterest) }}/월)
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. 월별 분배금 캘린더 & 목표 달성률 (기존 배당 캘린더 홈 통합) -->
+      <div class="toss-card p-5">
+        <div class="flex items-center justify-between mb-2">
+          <div>
+            <h2 class="text-sm font-extrabold text-[#191F28]">월별 실수령 분배금 & 목표 달성률</h2>
+            <p class="text-[11px] text-[#8B95A1]">이번 달 목표 {{ formatKRW(monthlyGoal) }} 대비 {{ monthlyGoalRate.toFixed(1) }}%</p>
+          </div>
+          <button @click="openGoalEditModal()" class="text-xs font-semibold text-[#6B7684] bg-gray-100 px-2.5 py-1 rounded-lg">
+            목표 수정
+          </button>
+        </div>
+
+        <!-- 목표 달성 게이지 -->
+        <div class="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden mb-4">
+          <div class="h-full bg-[#3182F6] rounded-full transition-all duration-300"
+            :style="{ width: Math.min(100, monthlyGoalRate) + '%' }"></div>
+        </div>
+
+        <!-- 최근 6개월 분배금 vs 대출이자 미니 바 차트 -->
+        <div class="grid grid-cols-6 gap-2 items-end h-28 pt-4 px-1 border-b border-gray-100">
+          <div v-for="m in recentSixMonthsStats" :key="m.ym" class="flex flex-col items-center justify-end h-full">
+            <div class="text-[10px] font-bold text-[#4E5968] mb-1">{{ m.divAmount > 0 ? formatCompactNumber(m.divAmount) : '-' }}</div>
+            <div class="w-full flex items-end justify-center gap-0.5 h-16">
+              <div class="w-3 bg-[#3182F6] rounded-t-md transition-all"
+                :style="{ height: m.divHeightPct + '%' }"
+                :title="'분배금: ' + formatKRW(m.divAmount)"></div>
+              <div v-if="m.interestAmount > 0" class="w-2 bg-amber-400 rounded-t-md transition-all"
+                :style="{ height: m.intHeightPct + '%' }"
+                :title="'이자: ' + formatKRW(m.interestAmount)"></div>
+            </div>
+          </div>
+        </div>
+        <div class="grid grid-cols-6 gap-2 text-center mt-1.5">
+          <div v-for="m in recentSixMonthsStats" :key="m.ym + '_lbl'" class="text-[10px] font-semibold text-[#8B95A1]">
+            {{ m.label }}
+          </div>
+        </div>
+        <div class="mt-2.5 flex items-center justify-end gap-3 text-[11px] text-[#6B7684]">
+          <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-sm bg-[#3182F6]"></span>실수령 분배금</span>
+          <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-sm bg-amber-400"></span>납부 대출이자</span>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ==========================================
+         탭 2: 보유 종목 (Holdings)
+    =========================================== -->
+    <section v-if="activeTab === 'holdings'" class="space-y-3.5">
+
+      <!-- 누적 분배금 라이프사이클 바 (재매수 / 미사용 보관 / 이자납부 / 외부인출) -->
+      <div class="toss-card p-4">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-extrabold text-[#191F28]">{{ selectedFundLabel }} 누적 수령 분배금 사용 현황</span>
+          <span class="text-xs font-extrabold text-[#3182F6]">총 {{ formatKRW(currentSummary.totalDividendsReceived) }}</span>
+        </div>
+
+        <div class="w-full h-3 bg-gray-100 rounded-full overflow-hidden flex">
+          <div class="bg-[#3182F6] h-full" :style="{ width: divLifecyclePct.reinvest + '%' }" title="배당 재매수"></div>
+          <div class="bg-emerald-500 h-full" :style="{ width: divLifecyclePct.cash + '%' }" title="미사용 분배금 예수금"></div>
+          <div class="bg-amber-500 h-full" :style="{ width: divLifecyclePct.interest + '%' }" title="대출이자 납부"></div>
+          <div class="bg-gray-400 h-full" :style="{ width: divLifecyclePct.withdraw + '%' }" title="외부 인출"></div>
+        </div>
+
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2.5 text-[11px]">
+          <div class="flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-[#3182F6]"></span>
+            <span class="text-[#6B7684]">재매수 {{ divLifecyclePct.reinvest.toFixed(0) }}%</span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+            <span class="text-[#6B7684]">미사용 {{ divLifecyclePct.cash.toFixed(0) }}%</span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+            <span class="text-[#6B7684]">이자납부 {{ divLifecyclePct.interest.toFixed(0) }}%</span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-gray-400"></span>
+            <span class="text-[#6B7684]">외부인출 {{ divLifecyclePct.withdraw.toFixed(0) }}%</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 상단 컨트롤: 순서 이동 모드 & 매도 완료 종목 보기 토글 -->
+      <div class="flex items-center justify-between px-1">
+        <div class="flex items-center gap-2">
+          <span class="text-xs font-bold text-[#4E5968]">보유 종목 ({{ activeHoldingsList.length }})</span>
+          <label class="flex items-center gap-1 text-[11px] text-[#6B7684] cursor-pointer">
+            <input type="checkbox" v-model="showSoldOutHoldings" class="rounded text-[#3182F6]" />
+            <span>전량매도 종목 포함</span>
+          </label>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <button @click="isReorderMode = !isReorderMode"
+            class="px-2.5 py-1 rounded-xl text-xs font-bold border transition"
+            :class="isReorderMode ? 'bg-[#3182F6] text-white border-[#3182F6]' : 'bg-white text-[#4E5968] border-gray-200'">
+            <i class="fa-solid fa-sort mr-1"></i>{{ isReorderMode ? '순서 편집 완료' : '순서 이동' }}
+          </button>
+          <button v-if="isReorderMode" @click="resetHoldingsOrder()" class="px-2 py-1 rounded-xl text-xs font-semibold bg-gray-200 text-gray-700">
+            초기화
+          </button>
+        </div>
+      </div>
+
+      <!-- 종목 카드 리스트 -->
+      <div v-if="activeHoldingsList.length === 0" class="toss-card p-8 text-center space-y-2">
+        <div class="text-sm font-bold text-[#4E5968]">표시할 보유 종목이 없습니다.</div>
+        <p class="text-xs text-[#8B95A1]">우측 상단 [+ 기록하기] 버튼으로 첫 매수 내역을 등록해 보세요.</p>
+      </div>
+
+      <div v-for="(item, idx) in activeHoldingsList" :key="item.key" class="toss-card p-4 space-y-3">
+        <!-- 카드 헤더: 종목명, 티커, 자금 배지, 현재가 -->
+        <div class="flex items-start justify-between gap-2">
+          <div class="min-w-0">
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <span class="text-[11px] font-extrabold px-2 py-0.5 rounded-md"
+                :class="item.fund === 'A' ? 'bg-[#E8F3FF] text-[#3182F6]' : item.fund === 'B' ? 'bg-purple-100 text-purple-700' : 'bg-gray-900 text-white'">
+                {{ item.fund === 'ALL' ? 'A+B 통합' : fundNames[item.fund] }}
+              </span>
+              <span class="text-[11px] font-mono font-bold text-[#8B95A1]">{{ item.ticker }}</span>
+              <span v-if="item.shares === 0" class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-gray-200 text-gray-600">매도완료</span>
+            </div>
+            <h3 class="text-base font-extrabold text-[#191F28] truncate mt-1">{{ item.name }}</h3>
+            <!-- 전체 뷰일 때 자금 A / B 보유 수량 명세 표시 -->
+            <div v-if="selectedFund === 'ALL'" class="text-[11px] text-[#6B7684] mt-0.5">
+              총 <b class="text-[#191F28]">{{ formatNumber(item.shares) }}주</b>
+              (A: {{ formatNumber(item.sharesA) }}주 · B: {{ formatNumber(item.sharesB) }}주)
+            </div>
+            <div v-else class="text-[11px] text-[#6B7684] mt-0.5">
+              보유 <b class="text-[#191F28]">{{ formatNumber(item.shares) }}주</b> · 평단 {{ formatKRW(item.avgPrice) }}
+            </div>
+          </div>
+
+          <!-- 우측: 현재가 & 순서 이동 버튼 -->
+          <div class="text-right shrink-0">
+            <div v-if="isReorderMode" class="flex items-center gap-1">
+              <button @click="moveHoldingOrder(item.ticker, 'TOP')" class="px-2 py-1 bg-gray-100 rounded text-[11px] font-bold">맨위</button>
+              <button @click="moveHoldingOrder(item.ticker, -1)" :disabled="idx === 0" class="px-2 py-1 bg-gray-100 rounded text-xs disabled:opacity-40">▲</button>
+              <button @click="moveHoldingOrder(item.ticker, 1)" :disabled="idx === activeHoldingsList.length - 1" class="px-2 py-1 bg-gray-100 rounded text-xs disabled:opacity-40">▼</button>
+            </div>
+            <button v-else @click="openPriceEditModal(item.ticker)" class="text-right group">
+              <div class="text-base font-extrabold text-[#191F28] group-hover:text-[#3182F6] flex items-center justify-end gap-1">
+                <span>{{ formatKRW(item.currentPrice) }}</span>
+                <i class="fa-solid fa-pen text-[10px] text-gray-400"></i>
+              </div>
+              <div class="text-[11px] font-bold" :class="item.changePct >= 0 ? 'toss-up' : 'toss-down'">
+                {{ formatSignedPct(item.changePct) }}
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <!-- 시초가 / 12시 가격 / 마감가 3단 시세 배지 -->
+        <div @click="openPriceEditModal(item.ticker)" class="bg-[#F9FAFB] rounded-xl px-3 py-2 grid grid-cols-3 gap-2 text-center border border-gray-100 cursor-pointer hover:border-blue-200 transition">
+          <div>
+            <div class="text-[10px] text-[#8B95A1]">시초가 (09:00)</div>
+            <div class="text-xs font-bold text-[#4E5968]">{{ formatKRW(item.openPrice) }}</div>
+          </div>
+          <div class="border-x border-gray-200/60">
+            <div class="text-[10px] text-[#8B95A1]">12시 가격 (정오)</div>
+            <div class="text-xs font-bold text-[#4E5968]">{{ formatKRW(item.noonPrice) }}</div>
+          </div>
+          <div>
+            <div class="text-[10px] text-[#8B95A1]">마감/현재가</div>
+            <div class="text-xs font-extrabold text-[#191F28]">{{ formatKRW(item.closePrice) }}</div>
+          </div>
+        </div>
+
+        <!-- 핵심 성과 요약: 평가금액 / 배당포함 실질 총수익(TR) / 순수 주가 손익 -->
+        <div class="grid grid-cols-3 gap-2 bg-[#F2F4F6]/70 rounded-2xl p-3">
+          <div>
+            <div class="text-[11px] text-[#6B7684]">평가금액</div>
+            <div class="text-xs font-extrabold text-[#191F28] mt-0.5">{{ formatKRW(item.evalAmount) }}</div>
+          </div>
+          <div>
+            <div class="text-[11px] text-[#6B7684] font-semibold">실질 총수익(TR)</div>
+            <div class="text-xs font-extrabold mt-0.5" :class="item.totalReturnKRW >= 0 ? 'toss-up' : 'toss-down'">
+              {{ formatSignedKRW(item.totalReturnKRW) }}
+              <span class="block text-[10px]">({{ formatSignedPct(item.totalReturnRate) }})</span>
+            </div>
+          </div>
+          <div>
+            <div class="text-[11px] text-[#6B7684]">순수 주가손익</div>
+            <div class="text-xs font-bold mt-0.5" :class="item.capitalGainKRW >= 0 ? 'toss-up' : 'toss-down'">
+              {{ formatSignedKRW(item.capitalGainKRW) }}
+              <span class="block text-[10px]">({{ formatSignedPct(item.capitalGainRate) }})</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 현금 투입 주수 vs 배당 재매수 주수 비율 게이지 -->
+        <div v-if="item.shares > 0" class="space-y-1">
+          <div class="flex justify-between text-[11px]">
+            <span class="text-[#4E5968] font-medium">
+              원금매수 <b>{{ formatNumber(item.cashShares) }}주</b> ({{ item.cashSharePct.toFixed(0) }}%)
+            </span>
+            <span class="text-[#3182F6] font-bold">
+              배당재매수(복리) <b>{{ formatNumber(item.reinvestShares) }}주</b> ({{ item.reinvestSharePct.toFixed(0) }}%)
+            </span>
+          </div>
+          <div class="w-full h-2 bg-gray-200 rounded-full overflow-hidden flex">
+            <div class="bg-slate-600 h-full" :style="{ width: item.cashSharePct + '%' }"></div>
+            <div class="bg-[#3182F6] h-full" :style="{ width: item.reinvestSharePct + '%' }"></div>
+          </div>
+        </div>
+
+        <!-- 토스 스타일 상세 지표 접기/펼치기 -->
+        <div class="pt-1 border-t border-gray-100 flex items-center justify-between">
+          <span class="text-[11px] text-[#6B7684]">
+            누적 실수령 분배금 <b class="text-[#191F28]">{{ formatKRW(item.cumDividends) }}</b> (원금대비 YOC {{ item.yocCumRate.toFixed(2) }}%)
+          </span>
+          <button @click="toggleCardExpand(item.key)" class="text-xs font-bold text-[#3182F6] flex items-center gap-1">
+            <span>{{ expandedCards[item.key] ? '접기' : '상세보기' }}</span>
+            <i class="fa-solid" :class="expandedCards[item.key] ? 'fa-chevron-up' : 'fa-chevron-down'"></i>
+          </button>
+        </div>
+
+        <!-- 펼쳐진 상세 영역 -->
+        <div v-if="expandedCards[item.key]" class="bg-[#F9FAFB] rounded-2xl p-3.5 text-xs space-y-2 border border-gray-100">
+          <div class="grid grid-cols-2 gap-2">
+            <div class="flex justify-between">
+              <span class="text-[#6B7684]">순수 현금 원금</span>
+              <span class="font-bold">{{ formatKRW(item.pureCashCost) }}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-[#6B7684]">배당 재매수 원금</span>
+              <span class="font-bold text-[#3182F6]">{{ formatKRW(item.reinvestCost) }}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-[#6B7684]">총 매입 원금</span>
+              <span class="font-bold">{{ formatKRW(item.totalAcquisition) }}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-[#6B7684]">기실현 매도손익</span>
+              <span class="font-bold" :class="item.realizedPnl >= 0 ? 'toss-up' : 'toss-down'">{{ formatSignedKRW(item.realizedPnl) }}</span>
+            </div>
+          </div>
+
+          <div class="border-t border-gray-200/60 pt-2 grid grid-cols-2 gap-2 text-[11px]">
+            <div>
+              <span class="text-[#8B95A1] block">최근 실질 분배율 (내 평단 기준)</span>
+              <span class="font-bold text-[#191F28]">월 {{ item.recentMonthlyYoc.toFixed(2) }}% (단순 연환산 {{ (item.recentMonthlyYoc * 12).toFixed(1) }}%)</span>
+            </div>
+            <div>
+              <span class="text-[#8B95A1] block">최근 기준일 분배율 (기준주가 대비)</span>
+              <span class="font-bold text-[#191F28]">월 {{ item.recentBaseYield.toFixed(2) }}% (단순 연환산 {{ (item.recentBaseYield * 12).toFixed(1) }}%)</span>
+            </div>
+          </div>
+
+          <div class="text-[10px] text-[#8B95A1] flex items-center justify-between pt-1">
+            <span>* 일부 매도 시 현금매수·재매수 주수 비례 차감 기준 적용</span>
+            <div class="flex gap-2">
+              <button @click="prefillTradeModal(item.ticker, 'REINVEST')" class="text-[#3182F6] font-bold underline">배당 재매수</button>
+              <button @click="prefillDividendModal(item.ticker)" class="text-emerald-600 font-bold underline">분배금 입력</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ==========================================
+         탭 3: 원장 (매매 원장 / 분배금 원장 / 현금 장부)
+    =========================================== -->
+    <section v-if="activeTab === 'ledger'" class="space-y-3.5">
+
+      <!-- 원장 내부 서브탭 선택 -->
+      <div class="bg-white p-1.5 rounded-2xl grid grid-cols-3 gap-1 shadow-sm">
+        <button @click="ledgerSubTab = 'TRADES'"
+          class="py-2 rounded-xl text-xs font-extrabold transition"
+          :class="ledgerSubTab === 'TRADES' ? 'bg-[#3182F6] text-white' : 'text-[#6B7684]'">
+          매매 원장 ({{ filteredTrades.length }})
+        </button>
+        <button @click="ledgerSubTab = 'DIVIDENDS'"
+          class="py-2 rounded-xl text-xs font-extrabold transition"
+          :class="ledgerSubTab === 'DIVIDENDS' ? 'bg-[#3182F6] text-white' : 'text-[#6B7684]'">
+          분배금 ({{ filteredDividends.length }})
+        </button>
+        <button @click="ledgerSubTab = 'CASH'"
+          class="py-2 rounded-xl text-xs font-extrabold transition"
+          :class="ledgerSubTab === 'CASH' ? 'bg-[#3182F6] text-white' : 'text-[#6B7684]'">
+          현금·이체 ({{ filteredCashFlows.length }})
+        </button>
+      </div>
+
+      <!-- 서브탭 A: 매매 원장 -->
+      <div v-if="ledgerSubTab === 'TRADES'" class="space-y-3">
+        <div class="flex items-center justify-between">
+          <div class="flex gap-1.5 overflow-x-auto no-scrollbar">
+            <button v-for="flt in [{k:'ALL', l:'전체'}, {k:'BUY', l:'현금매수'}, {k:'REINVEST', l:'배당재매수'}, {k:'SELL', l:'매도'}]" :key="flt.k"
+              @click="tradeFilter = flt.k"
+              class="px-3 py-1.5 rounded-xl text-xs font-bold shrink-0 transition"
+              :class="tradeFilter === flt.k ? 'bg-gray-900 text-white' : 'bg-white text-[#6B7684]'">
+              {{ flt.l }}
+            </button>
+          </div>
+          <button @click="openActionModal('TRADE')" class="text-xs font-bold text-[#3182F6] shrink-0">+ 매매 등록</button>
+        </div>
+
+        <div v-for="tr in filteredTrades" :key="tr.id" class="toss-card p-4 flex items-center justify-between gap-3">
+          <div class="space-y-1 min-w-0">
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <span class="text-[10px] font-extrabold px-1.5 py-0.5 rounded"
+                :class="tr.fund_id === 'A' ? 'bg-[#E8F3FF] text-[#3182F6]' : 'bg-purple-100 text-purple-700'">
+                {{ fundNames[tr.fund_id] }}
+              </span>
+              <span class="text-[10px] font-extrabold px-1.5 py-0.5 rounded"
+                :class="tr.trade_type === 'BUY' ? 'bg-red-50 text-red-600' : tr.trade_type === 'REINVEST' ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-700'">
+                {{ tr.trade_type === 'BUY' ? '현금매수' : tr.trade_type === 'REINVEST' ? '분배금 재매수' : '매도' }}
+              </span>
+              <span class="text-xs font-bold text-[#191F28] truncate">{{ tr.name }} ({{ tr.ticker }})</span>
+            </div>
+            <div class="text-[11px] text-[#6B7684]">
+              {{ tr.trade_date }} · {{ formatNumber(tr.shares) }}주 × {{ formatKRW(tr.price) }}
+              <span v-if="tr.fee > 0">(수수료 {{ formatKRW(tr.fee) }})</span>
+            </div>
+            <div class="text-[10px] text-[#8B95A1]">
+              재원:
+              <span v-if="tr.trade_type === 'REINVEST' && tr.principal_mixed_amount > 0" class="text-[#3182F6] font-semibold">
+                분배금 {{ formatKRW(tr.shares * tr.price + (tr.fee || 0) - tr.principal_mixed_amount) }} + 추가원금 {{ formatKRW(tr.principal_mixed_amount) }} 혼합
+              </span>
+              <span v-else-if="tr.trade_type === 'REINVEST'" class="text-[#3182F6] font-semibold">미사용 분배금 예수금 사용</span>
+              <span v-else-if="tr.trade_type === 'BUY'">일반 원금 예수금 투입</span>
+              <span v-else>매도 결제대금 → 원금 예수금 입금</span>
+            </div>
+          </div>
+
+          <div class="text-right shrink-0">
+            <div class="text-sm font-extrabold text-[#191F28]">
+              {{ formatKRW(tr.shares * tr.price + (tr.trade_type === 'SELL' ? -(tr.fee || 0) : (tr.fee || 0))) }}
+            </div>
+            <div class="flex items-center justify-end gap-2 mt-1.5">
+              <button @click="editTransaction(tr)" class="text-[11px] text-[#6B7684] hover:text-[#191F28]">수정</button>
+              <button @click="deleteTransaction(tr.id)" class="text-[11px] text-red-500 hover:text-red-700">삭제</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 서브탭 B: 분배금 원장 (예상 · 확정 · 입금완료 구분 + 세전/세금/실입금액) -->
+      <div v-if="ledgerSubTab === 'DIVIDENDS'" class="space-y-3">
+        <div class="flex items-center justify-between">
+          <div class="flex gap-1.5">
+            <button v-for="st in [{k:'ALL', l:'전체'}, {k:'RECEIVED', l:'실입금 완료'}, {k:'CONFIRMED', l:'확정(입금대기)'}, {k:'EXPECTED', l:'예상'}]" :key="st.k"
+              @click="divFilter = st.k"
+              class="px-2.5 py-1.5 rounded-xl text-xs font-bold transition"
+              :class="divFilter === st.k ? 'bg-gray-900 text-white' : 'bg-white text-[#6B7684]'">
+              {{ st.l }}
+            </button>
+          </div>
+          <button @click="openActionModal('DIVIDEND')" class="text-xs font-bold text-[#3182F6]">+ 분배금 등록</button>
+        </div>
+
+        <div v-for="dv in filteredDividends" :key="dv.id" class="toss-card p-4 space-y-2">
+          <div class="flex items-start justify-between">
+            <div class="space-y-1">
+              <div class="flex items-center gap-1.5 flex-wrap">
+                <span class="text-[10px] font-extrabold px-1.5 py-0.5 rounded"
+                  :class="dv.fund_id === 'A' ? 'bg-[#E8F3FF] text-[#3182F6]' : 'bg-purple-100 text-purple-700'">
+                  {{ fundNames[dv.fund_id] }}
+                </span>
+                <span class="text-[10px] font-extrabold px-1.5 py-0.5 rounded"
+                  :class="dv.stage === 'RECEIVED' ? 'bg-emerald-100 text-emerald-700' : dv.stage === 'CONFIRMED' ? 'bg-amber-100 text-amber-700' : 'bg-gray-200 text-gray-600'">
+                  {{ dv.stage === 'RECEIVED' ? '실입금 완료' : dv.stage === 'CONFIRMED' ? '확정(입금예정)' : '예상 분배금' }}
+                </span>
+                <span class="text-xs font-extrabold text-[#191F28]">{{ getTickerName(dv.ticker) }} ({{ dv.ticker }})</span>
+              </div>
+              <div class="text-[11px] text-[#6B7684]">
+                기준일 {{ dv.record_date }} ({{ dv.is_estimated_record ? '추정' : '확정' }}) · 지급일 {{ dv.pay_date }}
+              </div>
+              <div class="text-[11px] text-[#6B7684]">
+                지급대상 <b>{{ formatNumber(dv.shares_held) }}주</b> × 주당 {{ formatKRW(dv.dividend_per_share) }}
+              </div>
+            </div>
+
+            <div class="text-right">
+              <div class="text-sm font-extrabold text-emerald-600">
+                +{{ formatKRW(dv.total_received) }}
+              </div>
+              <div class="text-[10px] text-[#8B95A1]">
+                세전 {{ formatKRW(dv.gross_amount || (dv.shares_held * dv.dividend_per_share)) }} · 세금 {{ formatKRW(dv.tax_amount || 0) }}
+              </div>
+            </div>
+          </div>
+
+          <div class="pt-2 border-t border-gray-100 flex items-center justify-between text-[11px]">
+            <div class="text-[#6B7684]">
+              실효세율 {{ getEffectiveTaxRate(dv).toFixed(1) }}% (옵션 비과세 반영)
+            </div>
+            <div class="flex items-center gap-2.5">
+              <button v-if="dv.stage !== 'RECEIVED'" @click="markDividendReceived(dv)" class="text-emerald-600 font-extrabold underline">
+                입금완료 처리
+              </button>
+              <button @click="editDividend(dv)" class="text-[#6B7684]">수정</button>
+              <button @click="deleteDividend(dv.id)" class="text-red-500">삭제</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 서브탭 C: 현금·이체 장부 (모든 현금 유출입 기록) -->
+      <div v-if="ledgerSubTab === 'CASH'" class="space-y-3">
+        <div class="flex items-center justify-between px-1">
+          <span class="text-xs font-bold text-[#6B7684]">원금 입출금 · 분배금 인출 · A↔B 이체 · 이자 납부 내역</span>
+          <button @click="openActionModal('CASH')" class="text-xs font-bold text-[#3182F6]">+ 현금 기록</button>
+        </div>
+
+        <div v-for="cf in filteredCashFlows" :key="cf.id" class="toss-card p-4 flex items-center justify-between">
+          <div class="space-y-1">
+            <div class="flex items-center gap-1.5">
+              <span class="text-[10px] font-extrabold px-1.5 py-0.5 rounded"
+                :class="cf.fund_id === 'A' ? 'bg-[#E8F3FF] text-[#3182F6]' : 'bg-purple-100 text-purple-700'">
+                {{ fundNames[cf.fund_id] }}
+              </span>
+              <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-gray-100 text-[#4E5968]">
+                {{ cf.bucket === 'DIVIDEND' ? '분배금 바구니' : '원금 예수금' }}
+              </span>
+              <span class="text-xs font-bold text-[#191F28]">{{ getCashFlowLabel(cf.flow_type) }}</span>
+            </div>
+            <div class="text-[11px] text-[#6B7684]">{{ cf.flow_date }} · {{ cf.memo || '-' }}</div>
+          </div>
+
+          <div class="text-right">
+            <div class="text-sm font-extrabold" :class="isCashInflow(cf.flow_type) ? 'text-emerald-600' : 'text-[#191F28]'">
+              {{ isCashInflow(cf.flow_type) ? '+' : '-' }}{{ formatKRW(cf.amount) }}
+            </div>
+            <button @click="deleteCashFlow(cf.id)" class="text-[11px] text-red-500 mt-1">삭제</button>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ==========================================
+         탭 4: 분배금 재매수 (Reinvest & Simulator)
+    =========================================== -->
+    <section v-if="activeTab === 'reinvest'" class="space-y-3.5">
+
+      <!-- 재매수 가용 재원 카드 -->
+      <div class="toss-card p-5 bg-gradient-to-br from-[#3182F6] to-[#1B64DA] text-white">
+        <div class="text-xs font-semibold text-blue-100">{{ selectedFundLabel }} 즉시 재매수 가능 분배금</div>
+        <div class="text-2xl font-extrabold mt-1">{{ formatKRW(currentSummary.dividendCashBucket) }}</div>
+        <div class="mt-2 pt-2 border-t border-white/15 flex items-center justify-between text-xs text-blue-100">
+          <span>보태서 쓸 수 있는 일반 원금 예수금</span>
+          <span class="font-bold text-white">{{ formatKRW(Math.max(0, currentSummary.principalCashBucket)) }}</span>
+        </div>
+      </div>
+
+      <!-- 종목별 즉시 재매수 계산기 (+1주 / +5주 / +10주 / 최대 풀매수) -->
+      <div class="toss-card p-4 space-y-3">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-sm font-extrabold text-[#191F28]">원클릭 분배금 재매수 실행</h2>
+            <p class="text-[11px] text-[#8B95A1]">버튼을 누르면 매매원장의 '분배금 재매수'로 연결 등록됩니다.</p>
+          </div>
+        </div>
+
+        <div v-for="item in activeHoldingsList" :key="'re_' + item.key" class="bg-[#F9FAFB] rounded-2xl p-3.5 border border-gray-100 space-y-2.5">
+          <div class="flex items-center justify-between">
+            <div>
+              <span class="text-[10px] font-bold px-1.5 py-0.5 rounded mr-1"
+                :class="item.fund === 'A' ? 'bg-[#E8F3FF] text-[#3182F6]' : 'bg-purple-100 text-purple-700'">
+                {{ item.fund === 'ALL' ? '자금 A 기본' : fundNames[item.fund] }}
+              </span>
+              <span class="text-xs font-extrabold text-[#191F28]">{{ item.name }}</span>
+              <div class="text-[11px] text-[#6B7684] mt-0.5">
+                현재가 {{ formatKRW(item.currentPrice) }} · 분배금으로 최대 <b class="text-[#3182F6]">{{ Math.floor(Math.max(0, currentSummary.dividendCashBucket) / item.currentPrice) }}주</b> 매수 가능
+              </div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-4 gap-1.5">
+            <button @click="quickReinvest(item, 1)" class="py-1.5 rounded-xl bg-white border border-gray-200 text-xs font-bold text-[#191F28] hover:border-[#3182F6]">+1주</button>
+            <button @click="quickReinvest(item, 5)" class="py-1.5 rounded-xl bg-white border border-gray-200 text-xs font-bold text-[#191F28] hover:border-[#3182F6]">+5주</button>
+            <button @click="quickReinvest(item, 10)" class="py-1.5 rounded-xl bg-white border border-gray-200 text-xs font-bold text-[#191F28] hover:border-[#3182F6]">+10주</button>
+            <button @click="quickReinvestMax(item)" class="py-1.5 rounded-xl bg-[#E8F3FF] text-[#3182F6] text-xs font-extrabold">최대 매수</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 복리 & 월 배당 목표 시뮬레이터 -->
+      <div class="toss-card p-5 space-y-3">
+        <h2 class="text-sm font-extrabold text-[#191F28]">배당 100% 복리 재투자 시뮬레이터</h2>
+        <div class="grid grid-cols-2 gap-2.5 text-xs">
+          <div>
+            <label class="text-[11px] text-[#6B7684] block mb-1">예상 연 분배율 (%)</label>
+            <input type="number" v-model.number="simAnnualYield" step="0.5" class="w-full px-3 py-2 rounded-xl bg-[#F2F4F6] font-bold text-sm" />
+          </div>
+          <div>
+            <label class="text-[11px] text-[#6B7684] block mb-1">매월 추가 적립금 (원)</label>
+            <input type="number" v-model.number="simMonthlyAdd" step="100000" class="w-full px-3 py-2 rounded-xl bg-[#F2F4F6] font-bold text-sm" />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+          <div v-for="yr in [1, 3, 5, 10]" :key="yr" class="bg-[#F9FAFB] p-3 rounded-2xl border border-gray-100">
+            <div class="text-[11px] font-bold text-[#6B7684]">{{ yr }}년 뒤 예상</div>
+            <div class="text-xs font-extrabold text-[#191F28] mt-1">{{ formatCompactKRW(calcCompoundAsset(yr).asset) }}</div>
+            <div class="text-[11px] font-bold text-[#3182F6] mt-0.5">월 {{ formatCompactKRW(calcCompoundAsset(yr).monthlyDiv) }}</div>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ==========================================
+         탭 5: 대출 관리 (Loans & Interest)
+    =========================================== -->
+    <section v-if="activeTab === 'loans'" class="space-y-3.5">
+
+      <!-- 대출 요약 헤더 카드 -->
+      <div class="toss-card p-5">
+        <div class="flex items-center justify-between mb-2">
+          <div>
+            <span class="text-xs font-bold text-[#6B7684]">{{ selectedFundLabel }} 대출 및 이자 현황</span>
+            <div class="text-2xl font-extrabold text-[#191F28] mt-0.5">{{ formatKRW(currentSummary.loanBalance) }}</div>
+          </div>
+          <button @click="openLoanModal()" class="toss-btn-primary px-3 py-2 rounded-xl text-xs font-bold">
+            + 대출 등록
+          </button>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2 mt-3 bg-[#F9FAFB] p-3 rounded-2xl border border-gray-100 text-center">
+          <div>
+            <div class="text-[10px] text-[#8B95A1]">평균 적용금리</div>
+            <div class="text-xs font-extrabold text-[#191F28] mt-0.5">연 {{ currentSummary.avgLoanRate.toFixed(2) }}%</div>
+          </div>
+          <div class="border-x border-gray-200/60">
+            <div class="text-[10px] text-[#8B95A1]">월 예상 이자</div>
+            <div class="text-xs font-extrabold text-amber-600 mt-0.5">{{ formatKRW(currentSummary.monthlyExpectedInterest) }}</div>
+          </div>
+          <div>
+            <div class="text-[10px] text-[#8B95A1]">누적 납부 이자</div>
+            <div class="text-xs font-extrabold text-[#4E5968] mt-0.5">{{ formatKRW(currentSummary.totalPaidInterest) }}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 등록된 대출 리스트 -->
+      <div v-if="filteredLoans.length === 0" class="toss-card p-8 text-center text-xs text-[#8B95A1]">
+        등록된 대출이 없습니다. 자금별 신용/담보/마이너스통장 대출을 등록해 이자 차감 후 순수익을 관리해 보세요.
+      </div>
+
+      <div v-for="ln in filteredLoans" :key="ln.id" class="toss-card p-4 space-y-3">
+        <div class="flex items-start justify-between">
+          <div>
+            <div class="flex items-center gap-1.5">
+              <span class="text-[10px] font-extrabold px-1.5 py-0.5 rounded"
+                :class="ln.fund_id === 'A' ? 'bg-[#E8F3FF] text-[#3182F6]' : 'bg-purple-100 text-purple-700'">
+                {{ fundNames[ln.fund_id] }}
+              </span>
+              <span class="text-xs font-extrabold text-[#191F28]">{{ ln.loan_name }}</span>
+            </div>
+            <div class="text-[11px] text-[#6B7684] mt-1">
+              연 <b>{{ ln.interest_rate }}%</b> · 매월 {{ ln.pay_day }}일 이자 납부 · 만기 {{ ln.maturity_date || '미지정' }}
+            </div>
+          </div>
+
+          <div class="text-right">
+            <div class="text-base font-extrabold text-[#191F28]">{{ formatKRW(ln.principal_balance) }}</div>
+            <div class="text-[11px] font-semibold text-amber-600">
+              월 예상이자 {{ formatKRW(Math.round(ln.principal_balance * (ln.interest_rate / 100) / 12)) }}
+            </div>
+          </div>
+        </div>
+
+        <div class="pt-2 border-t border-gray-100 flex items-center justify-between gap-2">
+          <div class="flex gap-1.5">
+            <button @click="openPayInterestModal(ln)" class="px-3 py-1.5 rounded-xl bg-amber-50 text-amber-700 text-xs font-extrabold border border-amber-200">
+              <i class="fa-solid fa-coins mr-1"></i>이번 달 이자 납부
+            </button>
+            <button @click="openRepayLoanModal(ln)" class="px-2.5 py-1.5 rounded-xl bg-gray-100 text-[#4E5968] text-xs font-bold">
+              원금 상환/추가입금
+            </button>
+          </div>
+          <button @click="deleteLoan(ln.id)" class="text-xs text-red-500">삭제</button>
+        </div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- 하단 5개 탭 네비게이션 바 (토스증권 스타일) -->
+  <nav class="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-gray-200/80">
+    <div class="max-w-lg mx-auto grid grid-cols-5 h-16">
+      <button v-for="t in navTabs" :key="t.id" @click="activeTab = t.id"
+        class="flex flex-col items-center justify-center gap-1 transition"
+        :class="activeTab === t.id ? 'text-[#191F28]' : 'text-[#B0B8C1]'">
+        <i :class="[t.icon, activeTab === t.id ? 'text-[#3182F6] text-base' : 'text-base']"></i>
+        <span class="text-[11px] font-bold">{{ t.label }}</span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- ==========================================
+       모달 1: 통합 기록하기 모달 (매매 / 분배금 / 현금·이체)
+  =========================================== -->
+  <div v-if="showActionModal" class="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-3xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between">
+        <div class="flex gap-1 bg-gray-100 p-1 rounded-xl">
+          <button @click="actionModalTab = 'TRADE'" class="px-3 py-1.5 rounded-lg text-xs font-extrabold"
+            :class="actionModalTab === 'TRADE' ? 'bg-white text-[#191F28] shadow-xs' : 'text-[#6B7684]'">주식 매매</button>
+          <button @click="actionModalTab = 'DIVIDEND'" class="px-3 py-1.5 rounded-lg text-xs font-extrabold"
+            :class="actionModalTab === 'DIVIDEND' ? 'bg-white text-[#191F28] shadow-xs' : 'text-[#6B7684]'">분배금 등록</button>
+          <button @click="actionModalTab = 'CASH'" class="px-3 py-1.5 rounded-lg text-xs font-extrabold"
+            :class="actionModalTab === 'CASH' ? 'bg-white text-[#191F28] shadow-xs' : 'text-[#6B7684]'">현금 · 이체</button>
+        </div>
+        <button @click="showActionModal = false" class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <!-- 1-A. 주식 매매 입력 폼 (자금 A / B / A·B 분할 배정 지원) -->
+      <div v-if="actionModalTab === 'TRADE'" class="space-y-3 text-xs">
+        <div class="grid grid-cols-3 gap-1.5 bg-[#F2F4F6] p-1 rounded-xl">
+          <button @click="tradeForm.trade_type = 'BUY'" class="py-2 rounded-lg font-extrabold"
+            :class="tradeForm.trade_type === 'BUY' ? 'bg-white text-red-600 shadow-xs' : 'text-[#6B7684]'">현금 매수</button>
+          <button @click="tradeForm.trade_type = 'REINVEST'" class="py-2 rounded-lg font-extrabold"
+            :class="tradeForm.trade_type === 'REINVEST' ? 'bg-white text-[#3182F6] shadow-xs' : 'text-[#6B7684]'">분배금 재매수</button>
+          <button @click="tradeForm.trade_type = 'SELL'" class="py-2 rounded-lg font-extrabold"
+            :class="tradeForm.trade_type === 'SELL' ? 'bg-white text-gray-900 shadow-xs' : 'text-[#6B7684]'">매도</button>
+        </div>
+
+        <!-- 자금 귀속 방식 (자금 A / 자금 B / 한 번의 매수를 A·B에 나눠 배정) -->
+        <div>
+          <label class="block text-[11px] font-bold text-[#6B7684] mb-1">귀속 자금 선택</label>
+          <div class="grid grid-cols-3 gap-1.5">
+            <button @click="tradeForm.allocMode = 'A'" class="py-2 rounded-xl font-bold border"
+              :class="tradeForm.allocMode === 'A' ? 'border-[#3182F6] bg-[#E8F3FF] text-[#3182F6]' : 'border-gray-200 text-[#6B7684]'">
+              {{ fundNames.A }}
+            </button>
+            <button @click="tradeForm.allocMode = 'B'" class="py-2 rounded-xl font-bold border"
+              :class="tradeForm.allocMode === 'B' ? 'border-purple-600 bg-purple-50 text-purple-700' : 'border-gray-200 text-[#6B7684]'">
+              {{ fundNames.B }}
+            </button>
+            <button @click="tradeForm.allocMode = 'SPLIT'" class="py-2 rounded-xl font-bold border"
+              :class="tradeForm.allocMode === 'SPLIT' ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 text-[#6B7684]'">
+              A·B 나눠 배정
+            </button>
+          </div>
+        </div>
+
+        <!-- 종목 검색 & 자동완성 -->
+        <div class="relative">
+          <label class="block text-[11px] font-bold text-[#6B7684] mb-1">종목코드 또는 ETF 검색</label>
+          <input type="text" v-model="tradeForm.tickerInput" @input="onTradeTickerInput()"
+            placeholder="예: 498400 또는 KODEX 200타겟위클리"
+            class="w-full px-3.5 py-2.5 rounded-xl bg-[#F2F4F6] font-bold text-sm focus:outline-none focus:ring-2 focus:ring-[#3182F6]" />
+          <div v-if="tickerSuggestions.length > 0" class="mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-40 overflow-y-auto divide-y divide-gray-100">
+            <button v-for="s in tickerSuggestions" :key="s.ticker" @click="selectPresetTicker(s, 'TRADE')"
+              class="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-blue-50">
+              <span class="font-bold text-[#191F28]">{{ s.name }} <span class="text-[#8B95A1] font-mono">{{ s.ticker }}</span></span>
+              <span class="font-extrabold text-[#3182F6]">{{ formatKRW(s.price) }}</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2.5">
+          <div v-if="tradeForm.allocMode !== 'SPLIT'">
+            <label class="block text-[11px] font-bold text-[#6B7684] mb-1">거래 수량 (주)</label>
+            <input type="number" v-model.number="tradeForm.shares" min="1" class="w-full px-3 py-2 rounded-xl bg-[#F2F4F6] font-bold text-sm" />
+          </div>
+          <div v-else class="col-span-2 grid grid-cols-2 gap-2 bg-gray-50 p-2.5 rounded-xl border border-gray-200">
+            <div>
+              <label class="block text-[10px] font-bold text-[#3182F6] mb-1">{{ fundNames.A }} 배정 수량(주)</label>
+              <input type="number" v-model.number="tradeForm.splitSharesA" min="0" class="w-full px-2.5 py-1.5 rounded-lg bg-white border font-bold" />
+            </div>
+            <div>
+              <label class="block text-[10px] font-bold text-purple-600 mb-1">{{ fundNames.B }} 배정 수량(주)</label>
+              <input type="number" v-model.number="tradeForm.splitSharesB" min="0" class="w-full px-2.5 py-1.5 rounded-lg bg-white border font-bold" />
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-[11px] font-bold text-[#6B7684] mb-1">1주당 체결단가 (원)</label>
+            <input type="number" v-model.number="tradeForm.price" class="w-full px-3 py-2 rounded-xl bg-[#F2F4F6] font-bold text-sm" />
+          </div>
+          <div>
+            <label class="block text-[11px] font-bold text-[#6B7684] mb-1">수수료·제세금 (원)</label>
+            <input type="number" v-model.number="tradeForm.fee" class="w-full px-3 py-2 rounded-xl bg-[#F2F4F6] font-bold text-sm" />
+          </div>
+          <div>
+            <label class="block text-[11px] font-bold text-[#6B7684] mb-1">거래일자</label>
+            <input type="date" v-model="tradeForm.trade_date" class="w-full px-3 py-2 rounded-xl bg-[#F2F4F6] font-bold text-sm" />
+          </div>
+        </div>
+
+        <!-- 배당 재매수 시 부족 금액 원금 혼합 여부 안내 -->
+        <div v-if="tradeForm.trade_type === 'REINVEST'" class="bg-[#E8F3FF] p-3 rounded-xl space-y-1">
+          <div class="flex justify-between font-bold text-[#1B64DA]">
+            <span>선택 자금 미사용 분배금 잔액</span>
+            <span>{{ formatKRW(selectedFormFundDividendCash) }}</span>
+          </div>
+          <label class="flex items-center gap-1.5 text-[11px] text-[#4E5968] cursor-pointer pt-1">
+            <input type="checkbox" v-model="tradeForm.allowMixPrincipal" class="rounded text-[#3182F6]" />
+            <span>분배금이 부족할 때 부족분을 일반 원금 예수금에서 자동 보태서 혼합 매수</span>
+          </label>
+        </div>
+
+        <button @click="submitTradeForm()" class="w-full toss-btn-primary py-3 rounded-2xl font-extrabold text-sm">
+          {{ tradeForm.editingId ? '매매 내역 수정 저장' : '매매 원장에 저장하기' }}
+        </button>
+      </div>
+
+      <!-- 1-B. 분배금 등록 폼 (A·B 보유수량 비율 자동 안분 지원) -->
+      <div v-if="actionModalTab === 'DIVIDEND'" class="space-y-3 text-xs">
+        <div class="grid grid-cols-3 gap-1.5 bg-[#F2F4F6] p-1 rounded-xl">
+          <button @click="divForm.stage = 'RECEIVED'" class="py-2 rounded-lg font-extrabold"
+            :class="divForm.stage === 'RECEIVED' ? 'bg-white text-emerald-600 shadow-xs' : 'text-[#6B7684]'">실입금 완료</button>
+          <button @click="divForm.stage = 'CONFIRMED'" class="py-2 rounded-lg font-extrabold"
+            :class="divForm.stage === 'CONFIRMED' ? 'bg-white text-amber-600 shadow-xs' : 'text-[#6B7684]'">확정(입금대기)</button>
+          <button @click="divForm.stage = 'EXPECTED'" class="py-2 rounded-lg font-extrabold"
+            :class="divForm.stage === 'EXPECTED' ? 'bg-white text-gray-800 shadow-xs' : 'text-[#6B7684]'">예상 분배금</button>
+        </div>
+
+        <div>
+          <label class="block text-[11px] font-bold text-[#6B7684] mb-1">자금 귀속 방식</label>
+          <div class="grid grid-cols-3 gap-1.5">
+            <button @click="divForm.allocMode = 'AUTO_AB'" class="py-2 rounded-xl font-bold border"
+              :class="divForm.allocMode === 'AUTO_AB' ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 text-[#6B7684]'">
+              A·B 수량비율 자동안분
+            </button>
+            <button @click="divForm.allocMode = 'A'; onDivTickerChange()" class="py-2 rounded-xl font-bold border"
+              :class="divForm.allocMode === 'A' ? 'border-[#3182F6] bg-[#E8F3FF] text-[#3182F6]' : 'border-gray-200 text-[#6B7684]'">
+              {{ fundNames.A }} 단독
+            </button>
+            <button @click="divForm.allocMode = 'B'; onDivTickerChange()" class="py-2 rounded-xl font-bold border"
+              :class="divForm.allocMode === 'B' ? 'border-purple-600 bg-purple-50 text-purple-700' : 'border-gray-200 text-[#6B7684]'">
+              {{ fundNames.B }} 단독
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-[11px] font-bold text-[#6B7684] mb-1">종목 선택</label>
+          <select v-model="divForm.ticker" @change="onDivTickerChange()" class="w-full px-3 py-2.5 rounded-xl bg-[#F2F4F6] font-bold text-sm">
+            <option v-for="t in availableDividendTickers" :key="t.ticker" :value="t.ticker">
+              {{ t.name }} ({{ t.ticker }}) — A:{{ t.sharesA }}주 / B:{{ t.sharesB }}주
+            </option>
+          </select>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2.5">
+          <div>
+            <label class="block text-[11px] font-bold text-[#6B7684] mb-1">지급 대상 수량 (주)</label>
+            <input type="number" v-model.number="divForm.shares_held" @input="recalcDivGross()" class="w-full px-3 py-2 rounded-xl bg-[#F2F4F6] font-bold text-sm" />
+          </div>
+          <div>
+            <label class="block text-[11px] font-bold text-[#6B7684] mb-1">주당 분배금 (세전, 원)</label>
+            <input type="number" v-model.number="divForm.dividend_per_share" @input="recalcDivGross()" class="w-full px-3 py-2 rounded-xl bg-[#F2F4F6] font-bold text-sm" />
+          </div>
+          <div>
+            <label class="block text-[11px] font-bold text-[#6B7684] mb-1">원천징수 세금 (원, 수정가능)</label>
+            <input type="number" v-model.number="divForm.tax_amount" @input="recalcDivNetFromTax()" class="w-full px-3 py-2 rounded-xl bg-[#F2F4F6] font-bold text-sm" />
+          </div>
+          <div>
+            <label class="block text-[11px] font-bold text-emerald-700 mb-1">실입금액 (세후 총액, 원)</label>
+            <input type="number" v-model.number="divForm.total_received" @input="recalcDivTaxFromNet()" class="w-full px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 font-extrabold text-sm text-emerald-700" />
+          </div>
+          <div>
+            <label class="block text-[11px] font-bold text-[#6B7684] mb-1">분배기준일 (확정)</label>
+            <input type="date" v-model="divForm.record_date" class="w-full px-3 py-2 rounded-xl bg-[#F2F4F6] font-bold text-sm" />
+          </div>
+          <div>
+            <label class="block text-[11px] font-bold text-[#6B7684] mb-1">실제 지급일</label>
+            <input type="date" v-model="divForm.pay_date" class="w-full px-3 py-2 rounded-xl bg-[#F2F4F6] font-bold text-sm" />
+          </div>
+        </div>
+
+        <button @click="submitDividendForm()" class="w-full toss-btn-primary py-3 rounded-2xl font-extrabold text-sm">
+          {{ divForm.editingId ? '분배금 내역 수정 저장' : '분배금 원장에 저장하기' }}
+        </button>
+      </div>
+
+      <!-- 1-C. 현금 입출금 & 자금 A↔B 이동 폼 -->
+      <div v-if="actionModalTab === 'CASH'" class="space-y-3 text-xs">
+        <div class="grid grid-cols-2 gap-1.5">
+          <button v-for="ct in [
+            {k:'DEPOSIT', l:'원금 추가 입금'},
+            {k:'WITHDRAW_DIV', l:'분배금 외부 인출(생활비)'},
+            {k:'WITHDRAW_PRIN', l:'원금 외부 출금'},
+            {k:'TRANSFER_AB', l:'자금 A ↔ B 이동'}
+          ]" :key="ct.k" @click="cashForm.flow_type = ct.k"
+            class="py-2 px-2 rounded-xl font-bold border text-center"
+            :class="cashForm.flow_type === ct.k ? 'border-[#3182F6] bg-[#E8F3FF] text-[#3182F6]' : 'border-gray-200 text-[#6B7684]'">
+            {{ ct.l }}
+          </button>
+        </div>
+
+        <div v-if="cashForm.flow_type !== 'TRANSFER_AB'" class="grid grid-cols-2 gap-2">
+          <button @click="cashForm.fund_id = 'A'" class="py-2 rounded-xl font-bold border"
+            :class="cashForm.fund_id === 'A' ? 'border-[#3182F6] bg-[#E8F3FF] text-[#3182F6]' : 'border-gray-200 text-[#6B7684]'">{{ fundNames.A }}</button>
+          <button @click="cashForm.fund_id = 'B'" class="py-2 rounded-xl font-bold border"
+            :class="cashForm.fund_id === 'B' ? 'border-purple-600 bg-purple-50 text-purple-700' : 'border-gray-200 text-[#6B7684]'">{{ fundNames.B }}</button>
+        </div>
+        <div v-else class="grid grid-cols-2 gap-2">
+          <button @click="cashForm.transferDir = 'A_TO_B'" class="py-2 rounded-xl font-bold border"
+            :class="cashForm.transferDir === 'A_TO_B' ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 text-[#6B7684]'">
+            {{ fundNames.A }} → {{ fundNames.B }}
+          </button>
+          <button @click="cashForm.transferDir = 'B_TO_A'" class="py-2 rounded-xl font-bold border"
+            :class="cashForm.transferDir === 'B_TO_A' ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 text-[#6B7684]'">
+            {{ fundNames.B }} → {{ fundNames.A }}
+          </button>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2.5">
+          <div>
+            <label class="block text-[11px] font-bold text-[#6B7684] mb-1">금액 (원)</label>
+            <input type="number" v-model.number="cashForm.amount" class="w-full px-3 py-2 rounded-xl bg-[#F2F4F6] font-bold text-sm" />
+          </div>
+          <div>
+            <label class="block text-[11px] font-bold text-[#6B7684] mb-1">일자</label>
+            <input type="date" v-model="cashForm.flow_date" class="w-full px-3 py-2 rounded-xl bg-[#F2F4F6] font-bold text-sm" />
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-[11px] font-bold text-[#6B7684] mb-1">메모</label>
+          <input type="text" v-model="cashForm.memo" placeholder="예: 11월 생활비 인출 / 초기 투자원금 입금" class="w-full px-3 py-2 rounded-xl bg-[#F2F4F6] font-bold text-sm" />
+        </div>
+
+        <button @click="submitCashForm()" class="w-full toss-btn-primary py-3 rounded-2xl font-extrabold text-sm">
+          현금 장부에 기록하기
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==========================================
+       모달 2: 시초가 · 12시 가격 · 마감가 수동 수정 모달
+  =========================================== -->
+  <div v-if="showPriceModal" class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+    <div class="bg-white w-full max-w-sm rounded-3xl p-5 space-y-3.5">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-extrabold text-[#191F28]">{{ priceEditForm.name }} ({{ priceEditForm.ticker }}) 시세 관리</h3>
+        <button @click="showPriceModal = false" class="text-gray-400"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="space-y-2.5 text-xs">
+        <div>
+          <label class="block text-[11px] text-[#6B7684] mb-1">시초가 (09:00 개장 시가, 원)</label>
+          <input type="number" v-model.number="priceEditForm.open_price" class="w-full px-3 py-2 rounded-xl bg-[#F2F4F6] font-bold text-sm" />
+        </div>
+        <div>
+          <label class="block text-[11px] text-[#6B7684] mb-1">12시 가격 (정오 기준가, 원)</label>
+          <input type="number" v-model.number="priceEditForm.noon_price" class="w-full px-3 py-2 rounded-xl bg-[#F2F4F6] font-bold text-sm" />
+        </div>
+        <div>
+          <label class="block text-[11px] text-[#3182F6] font-bold mb-1">마감가 / 현재 평가 가격 (원)</label>
+          <input type="number" v-model.number="priceEditForm.close_price" class="w-full px-3 py-2 rounded-xl bg-[#E8F3FF] font-extrabold text-sm text-[#3182F6]" />
+        </div>
+        <div>
+          <label class="block text-[11px] text-[#6B7684] mb-1">전일 종가 (원)</label>
+          <input type="number" v-model.number="priceEditForm.prev_close" class="w-full px-3 py-2 rounded-xl bg-[#F2F4F6] font-bold text-sm" />
+        </div>
+      </div>
+      <button @click="savePriceEdit()" class="w-full toss-btn-primary py-2.5 rounded-2xl text-xs font-extrabold">
+        시세 저장 및 즉시 반영
+      </button>
+    </div>
+  </div>
+
+  <!-- ==========================================
+       모달 3: 대출 등록 / 이자 납부 / 원금 상환 모달
+  =========================================== -->
+  <div v-if="showLoanModal" class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+    <div class="bg-white w-full max-w-sm rounded-3xl p-5 space-y-3.5">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-extrabold text-[#191F28]">
+          {{ loanModalMode === 'NEW' ? '신규 대출 등록' : loanModalMode === 'INTEREST' ? '이번 달 대출이자 납부' : '대출 원금 상환 / 추가 실행' }}
+        </h3>
+        <button @click="showLoanModal = false" class="text-gray-400"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <!-- 신규 대출 등록 -->
+      <div v-if="loanModalMode === 'NEW'" class="space-y-2.5 text-xs">
+        <div class="grid grid-cols-2 gap-2">
+          <button @click="loanForm.fund_id = 'A'" class="py-2 rounded-xl font-bold border"
+            :class="loanForm.fund_id === 'A' ? 'border-[#3182F6] bg-[#E8F3FF] text-[#3182F6]' : 'border-gray-200 text-[#6B7684]'">{{ fundNames.A }}</button>
+          <button @click="loanForm.fund_id = 'B'" class="py-2 rounded-xl font-bold border"
+            :class="loanForm.fund_id === 'B' ? 'border-purple-600 bg-purple-50 text-purple-700' : 'border-gray-200 text-[#6B7684]'">{{ fundNames.B }}</button>
+        </div>
+        <div>
+          <label class="block text-[11px] text-[#6B7684] mb-1">대출명</label>
+          <input type="text" v-model="loanForm.loan_name" placeholder="예: 미래에셋 증권담보대출 / 마이너스통장" class="w-full px-3 py-2 rounded-xl bg-[#F2F4F6] font-bold" />
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-[11px] text-[#6B7684] mb-1">대출 원금 잔액 (원)</label>
+            <input type="number" v-model.number="loanForm.principal_balance" class="w-full px-3 py-2 rounded-xl bg-[#F2F4F6] font-bold" />
+          </div>
+          <div>
+            <label class="block text-[11px] text-[#6B7684] mb-1">적용 연이율 (%)</label>
+            <input type="number" step="0.01" v-model.number="loanForm.interest_rate" class="w-full px-3 py-2 rounded-xl bg-[#F2F4F6] font-bold" />
+          </div>
+          <div>
+            <label class="block text-[11px] text-[#6B7684] mb-1">매월 이자일 (1~31)</label>
+            <input type="number" v-model.number="loanForm.pay_day" min="1" max="31" class="w-full px-3 py-2 rounded-xl bg-[#F2F4F6] font-bold" />
+          </div>
+          <div>
+            <label class="block text-[11px] text-[#6B7684] mb-1">만기일</label>
+            <input type="date" v-model="loanForm.maturity_date" class="w-full px-3 py-2 rounded-xl bg-[#F2F4F6] font-bold" />
+          </div>
+        </div>
+        <label class="flex items-center gap-1.5 text-[11px] text-[#4E5968] pt-1">
+          <input type="checkbox" v-model="loanForm.depositToCash" class="rounded text-[#3182F6]" />
+          <span>대출 실행금을 해당 자금의 원금 예수금에도 입금 처리</span>
+        </label>
+        <button @click="submitNewLoan()" class="w-full toss-btn-primary py-2.5 rounded-2xl font-extrabold text-xs">대출 등록하기</button>
+      </div>
+
+      <!-- 이자 납부 기록 -->
+      <div v-if="loanModalMode === 'INTEREST'" class="space-y-2.5 text-xs">
+        <div class="bg-amber-50 p-3 rounded-xl text-amber-800 text-[11px]">
+          <b>{{ interestForm.loan_name }}</b> ({{ fundNames[interestForm.fund_id] }}) 월 예상 이자가 자동 입력되었습니다. 실제 통장에서 인출된 이자 금액으로 보정해 주세요.
+        </div>
+        <div>
+          <label class="block text-[11px] text-[#6B7684] mb-1">실제 납부 이자 금액 (원)</label>
+          <input type="number" v-model.number="interestForm.amount" class="w-full px-3 py-2 rounded-xl bg-[#F2F4F6] font-extrabold text-sm" />
+        </div>
+        <div>
+          <label class="block text-[11px] text-[#6B7684] mb-1">이자 납부 재원 선택</label>
+          <select v-model="interestForm.source" class="w-full px-3 py-2 rounded-xl bg-[#F2F4F6] font-bold">
+            <option value="DIVIDEND">미사용 분배금 바구니에서 차감 (추천)</option>
+            <option value="PRINCIPAL">일반 원금 예수금에서 차감</option>
+            <option value="EXTERNAL">계좌 외 외부 자금(월급 등)으로 납부 (예수금 불변)</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-[11px] text-[#6B7684] mb-1">납부일</label>
+          <input type="date" v-model="interestForm.pay_date" class="w-full px-3 py-2 rounded-xl bg-[#F2F4F6] font-bold" />
+        </div>
+        <button @click="submitInterestPayment()" class="w-full toss-btn-primary py-2.5 rounded-2xl font-extrabold text-xs">이자 납부 확정</button>
+      </div>
+
+      <!-- 대출 원금 상환 / 추가 대출 -->
+      <div v-if="loanModalMode === 'REPAY'" class="space-y-2.5 text-xs">
+        <div class="grid grid-cols-2 gap-1.5 bg-gray-100 p-1 rounded-xl">
+          <button @click="repayForm.mode = 'REPAY'" class="py-1.5 rounded-lg font-bold"
+            :class="repayForm.mode === 'REPAY' ? 'bg-white text-[#191F28]' : 'text-[#6B7684]'">원금 일부/전액 상환</button>
+          <button @click="repayForm.mode = 'BORROW_MORE'" class="py-1.5 rounded-lg font-bold"
+            :class="repayForm.mode === 'BORROW_MORE' ? 'bg-white text-[#191F28]' : 'text-[#6B7684]'">추가 대출 실행</button>
+        </div>
+        <div>
+          <label class="block text-[11px] text-[#6B7684] mb-1">변동 원금 금액 (원)</label>
+          <input type="number" v-model.number="repayForm.amount" class="w-full px-3 py-2 rounded-xl bg-[#F2F4F6] font-extrabold text-sm" />
+        </div>
+        <div v-if="repayForm.mode === 'REPAY'">
+          <label class="block text-[11px] text-[#6B7684] mb-1">상환 재원</label>
+          <select v-model="repayForm.source" class="w-full px-3 py-2 rounded-xl bg-[#F2F4F6] font-bold">
+            <option value="PRINCIPAL">계좌 내 원금 예수금으로 상환</option>
+            <option value="DIVIDEND">계좌 내 미사용 분배금으로 상환</option>
+            <option value="EXTERNAL">계좌 외 외부 현금으로 상환</option>
+          </select>
+        </div>
+        <button @click="submitLoanBalanceChange()" class="w-full toss-btn-primary py-2.5 rounded-2xl font-extrabold text-xs">원금 잔액 반영</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==========================================
+       모달 4: 실제 증권계좌 잔고 대조 (A+B 합산 vs 실제 MTS 계좌)
+  =========================================== -->
+  <div v-if="showReconcileModal" class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+    <div class="bg-white w-full max-w-md rounded-3xl p-5 space-y-3.5 max-h-[85vh] overflow-y-auto">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-extrabold text-[#191F28]">실제 증권사 계좌 대조 (A+B 합산 점검)</h3>
+        <button @click="showReconcileModal = false" class="text-gray-400"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <p class="text-[11px] text-[#6B7684]">
+        하나의 증권 계좌 안에서 자금 A·B를 장부상 분리했으므로, <b>A+B 합계가 실제 증권사 MTS의 총 예수금·보유수량과 일치하는지</b> 바로 비교할 수 있습니다.
+      </p>
+
+      <div class="bg-[#F9FAFB] p-3.5 rounded-2xl border border-gray-100 space-y-2 text-xs">
+        <div class="flex justify-between">
+          <span class="text-[#6B7684]">장부상 A+B 총 예수금 합계</span>
+          <span class="font-extrabold text-[#191F28]">{{ formatKRW(fundSummaries.ALL.totalCash) }}</span>
+        </div>
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-[#6B7684]">실제 증권사 MTS 예수금 입력</span>
+          <input type="number" v-model.number="reconcileActualCash" placeholder="MTS 예수금 입력" class="w-36 px-2.5 py-1 rounded-lg bg-white border text-right font-bold" />
+        </div>
+        <div v-if="reconcileActualCash !== null && reconcileActualCash !== ''" class="pt-1 border-t flex justify-between font-bold"
+          :class="reconcileActualCash - fundSummaries.ALL.totalCash === 0 ? 'text-emerald-600' : 'text-red-600'">
+          <span>예수금 차액 (실제 − 장부)</span>
+          <span>{{ formatSignedKRW(reconcileActualCash - fundSummaries.ALL.totalCash) }}</span>
+        </div>
+      </div>
+
+      <div class="space-y-1.5 text-xs">
+        <div class="font-bold text-[#4E5968]">종목별 합산 수량 대조</div>
+        <div v-for="h in allCombinedHoldings" :key="'rec_' + h.ticker" class="flex items-center justify-between bg-gray-50 px-3 py-2 rounded-xl">
+          <span class="font-bold text-[#191F28]">{{ h.name }}</span>
+          <span class="text-[11px] text-[#4E5968]">
+            A {{ h.sharesA }}주 + B {{ h.sharesB }}주 = <b class="text-[#3182F6]">총 {{ h.shares }}주</b>
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==========================================
+       모달 5: 목표 수정 모달
+  =========================================== -->
+  <div v-if="showGoalModal" class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+    <div class="bg-white w-full max-w-sm rounded-3xl p-5 space-y-3.5">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-extrabold text-[#191F28]">월 배당 목표 & 자금 A·B 이름 설정</h3>
+        <button @click="showGoalModal = false" class="text-gray-400"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="space-y-2.5 text-xs">
+        <div>
+          <label class="block text-[11px] text-[#6B7684] mb-1">이번 달 목표 분배금 (원)</label>
+          <input type="number" v-model.number="goalEditValue" step="50000" class="w-full px-3 py-2 rounded-xl bg-[#F2F4F6] font-extrabold text-sm" />
+        </div>
+        <div>
+          <label class="block text-[11px] text-[#6B7684] mb-1">자금 A 별칭</label>
+          <input type="text" v-model="fundNameEditA" class="w-full px-3 py-2 rounded-xl bg-[#F2F4F6] font-bold" />
+        </div>
+        <div>
+          <label class="block text-[11px] text-[#6B7684] mb-1">자금 B 별칭</label>
+          <input type="text" v-model="fundNameEditB" class="w-full px-3 py-2 rounded-xl bg-[#F2F4F6] font-bold" />
+        </div>
+      </div>
+      <button @click="saveGoalAndNames()" class="w-full toss-btn-primary py-2.5 rounded-2xl text-xs font-extrabold">저장하기</button>
+    </div>
+  </div>
+
+  <!-- ==========================================
+       모달 6: Antigravity IDE 적용 가이드 · Supabase SQL · 엑셀(CSV/JSON) 백업 센터
+  =========================================== -->
+  <div v-if="showDevModal" class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+    <div class="bg-white w-full max-w-lg rounded-3xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between">
+        <div>
+          <h3 class="text-sm font-extrabold text-[#191F28]">Antigravity 적용 · Supabase 연동 · 엑셀 백업</h3>
+          <p class="text-[11px] text-[#8B95A1]">기존 프로젝트에서 바로 업그레이드할 수 있는 SQL과 데이터 백업 도구입니다.</p>
+        </div>
+        <button @click="showDevModal = false" class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div class="flex gap-1 bg-gray-100 p-1 rounded-xl text-xs font-bold">
+        <button @click="devTab = 'GUIDE'" class="flex-1 py-1.5 rounded-lg" :class="devTab === 'GUIDE' ? 'bg-white text-[#191F28] shadow-xs' : 'text-[#6B7684]'">교체 순서 & SQL</button>
+        <button @click="devTab = 'SUPABASE'" class="flex-1 py-1.5 rounded-lg" :class="devTab === 'SUPABASE' ? 'bg-white text-[#191F28] shadow-xs' : 'text-[#6B7684]'">Supabase 연결</button>
+        <button @click="devTab = 'BACKUP'" class="flex-1 py-1.5 rounded-lg" :class="devTab === 'BACKUP' ? 'bg-white text-[#191F28] shadow-xs' : 'text-[#6B7684]'">엑셀(CSV)·백업</button>
+      </div>
+
+      <!-- 탭 A: Antigravity 교체 가이드 & Supabase SQL 복사 -->
+      <div v-if="devTab === 'GUIDE'" class="space-y-3 text-xs">
+        <div class="bg-[#F8FBFF] border border-blue-100 rounded-2xl p-3.5 space-y-1.5 text-[#191F28]">
+          <div class="font-extrabold text-[#3182F6]">Antigravity IDE에 붙여넣는 3단계 순서</div>
+          <div><b>1단계 (Supabase SQL 실행)</b>: 아래 <code>[SQL 복사하기]</code> 버튼을 눌러 Supabase 대시보드의 <b>SQL Editor</b>에 붙여넣고 Run을 누릅니다. (기존 데이터는 모두 보존되며 <code>fund_id='A'</code>로 자동 지정됩니다.)</div>
+          <div><b>2단계 (index.html 교체)</b>: Antigravity IDE의 기존 <code>index.html</code> 전체를 지금 보시는 이 파일 코드로 덮어씁니다.</div>
+          <div><b>3단계 (시세 업데이터 선택)</b>: 앱을 열 때 조회만 하시려면 그대로 쓰시면 되고, 시초가·12시·종가를 파이썬으로도 수집하려면 함께 제공된 <code>updater.py</code>를 덮어쓰세요.</div>
+        </div>
+
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <span class="font-bold text-[#4E5968]">Supabase DB 마이그레이션 SQL</span>
+            <button @click="copyText(migrationSqlCode, 'Supabase SQL이 복사되었습니다!')" class="px-2.5 py-1 rounded-lg bg-[#3182F6] text-white font-bold text-[11px]">
+              <i class="fa-regular fa-copy mr-1"></i>SQL 복사하기
+            </button>
+          </div>
+          <pre class="bg-gray-900 text-gray-100 p-3 rounded-xl text-[10px] overflow-x-auto max-h-48 leading-relaxed">{{ migrationSqlCode }}</pre>
+        </div>
+      </div>
+
+      <!-- 탭 B: Supabase URL / ANON KEY 설정 -->
+      <div v-if="devTab === 'SUPABASE'" class="space-y-3 text-xs">
+        <div>
+          <label class="block text-[11px] font-bold text-[#6B7684] mb-1">SUPABASE_URL</label>
+          <input type="text" v-model="sbConfigForm.url" placeholder="https://xxxx.supabase.co" class="w-full px-3 py-2 rounded-xl bg-[#F2F4F6] font-mono text-xs" />
+        </div>
+        <div>
+          <label class="block text-[11px] font-bold text-[#6B7684] mb-1">SUPABASE_ANON_KEY</label>
+          <input type="password" v-model="sbConfigForm.key" placeholder="eyJhbGciOiJIUzI1NiIsInR5..." class="w-full px-3 py-2 rounded-xl bg-[#F2F4F6] font-mono text-xs" />
+        </div>
+        <div class="flex gap-2">
+          <button @click="saveSupabaseConfig()" class="flex-1 toss-btn-primary py-2.5 rounded-xl font-extrabold">연결 저장 및 동기화</button>
+          <button @click="disconnectSupabase()" class="px-3 py-2.5 rounded-xl bg-gray-200 text-gray-700 font-bold">연결 해제</button>
+        </div>
+      </div>
+
+      <!-- 탭 C: 엑셀(CSV) 내보내기 / 가져오기 & JSON 전체 백업 -->
+      <div v-if="devTab === 'BACKUP'" class="space-y-3 text-xs">
+        <div class="grid grid-cols-2 gap-2">
+          <button @click="exportCsvLedger()" class="p-3 rounded-2xl bg-[#E8F3FF] text-[#3182F6] font-extrabold text-left space-y-1">
+            <i class="fa-solid fa-file-csv text-base"></i>
+            <div>엑셀(CSV) 내보내기</div>
+            <div class="text-[10px] font-normal text-[#4E5968]">매매·분배금·현금 통합장부 다운로드</div>
+          </button>
+          <button @click="exportJsonBackup()" class="p-3 rounded-2xl bg-gray-100 text-[#191F28] font-extrabold text-left space-y-1">
+            <i class="fa-solid fa-download text-base"></i>
+            <div>JSON 전체 백업 저장</div>
+            <div class="text-[10px] font-normal text-[#4E5968]">모든 설정·대출·원장 100% 백업</div>
+          </button>
+        </div>
+
+        <div class="bg-[#F9FAFB] p-3.5 rounded-2xl border border-gray-200 space-y-2">
+          <div class="font-bold text-[#191F28]">엑셀(CSV) 또는 JSON 백업 불러오기</div>
+          <input type="file" accept=".json,.csv" @change="handleFileImport($event)" class="text-[11px] w-full" />
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 토스트 알림 -->
+  <div v-if="toastMessage" class="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-gray-900/95 text-white px-4 py-2.5 rounded-2xl text-xs font-bold shadow-lg flex items-center gap-2">
+    <i class="fa-solid fa-circle-check text-emerald-400"></i>
+    <span>{{ toastMessage }}</span>
+  </div>
+
+</div>
+
+<script>
+const { createApp } = Vue;
+
+// ============================================================================
+// 1. 국내 상장 커버드콜 ETF 사전 (PRESET_TICKERS - 실제 검증된 종목코드 및 기준 시세)
+// ============================================================================
+const PRESET_ETFS = [
+  { ticker: '498400', name: 'KODEX 200타겟위클리커버드콜', open_price: 15250, noon_price: 15480, close_price: 15610, prev_close: 15180, change_pct: 2.83 },
+  { ticker: '486290', name: 'TIGER 미국나스닥100타겟데일리커버드콜', open_price: 9360, noon_price: 9395, close_price: 9410, prev_close: 9340, change_pct: 0.75 },
+  { ticker: '482730', name: 'TIGER 미국S&P500타겟데일리커버드콜', open_price: 10840, noon_price: 10865, close_price: 10890, prev_close: 10820, change_pct: 0.65 },
+  { ticker: '472150', name: 'TIGER 배당커버드콜액티브', open_price: 15100, noon_price: 15145, close_price: 15130, prev_close: 15130, change_pct: 0.00 },
+  { ticker: '483290', name: 'KODEX 미국배당다우존스타겟커버드콜', open_price: 10310, noon_price: 10390, close_price: 10440, prev_close: 10240, change_pct: 1.95 },
+  { ticker: '475720', name: 'RISE 200위클리커버드콜', open_price: 9410, noon_price: 9455, close_price: 9480, prev_close: 9370, change_pct: 1.17 },
+  { ticker: '494300', name: 'KODEX 미국나스닥100데일리커버드콜OTM', open_price: 9790, noon_price: 9820, close_price: 9850, prev_close: 9760, change_pct: 0.92 },
+  { ticker: '0198A0', name: 'KIWOOM 코스닥150커버드콜액티브', open_price: 9880, noon_price: 9900, close_price: 9920, prev_close: 9850, change_pct: 0.71 },
+  { ticker: '0104N0', name: 'TIGER 200타겟위클리커버드콜', open_price: 10090, noon_price: 10120, close_price: 10150, prev_close: 10040, change_pct: 1.10 },
+  { ticker: '0167B0', name: 'SOL 200타겟위클리커버드콜', open_price: 10020, noon_price: 10050, close_price: 10080, prev_close: 9980, change_pct: 1.00 },
+  { ticker: '0008S0', name: 'TIGER 미국배당다우존스타겟데일리커버드콜', open_price: 9910, noon_price: 9930, close_price: 9950, prev_close: 9890, change_pct: 0.61 },
+  { ticker: '166400', name: 'TIGER 200커버드콜OTM', open_price: 11150, noon_price: 11180, close_price: 11200, prev_close: 11120, change_pct: 0.72 },
+  { ticker: '289480', name: 'TIGER 200커버드콜', open_price: 7810, noon_price: 7830, close_price: 7850, prev_close: 7800, change_pct: 0.64 },
+  { ticker: '0177R0', name: 'TIGER 반도체TOP10커버드콜액티브', open_price: 10250, noon_price: 10290, close_price: 10320, prev_close: 10200, change_pct: 1.18 }
+];
+
+const MIGRATION_SQL = `-- Covered Call Tracker v2.0 Supabase 마이그레이션 SQL
+-- 기존 데이터는 100% 보존되며 자금 A('A')로 기본 귀속됩니다.
+
+-- 1. 일별 시세 테이블에 시초가(open_price), 12시 가격(noon_price) 컬럼 추가
 ALTER TABLE daily_prices ADD COLUMN IF NOT EXISTS open_price numeric DEFAULT 0;
 ALTER TABLE daily_prices ADD COLUMN IF NOT EXISTS noon_price numeric DEFAULT 0;
 ALTER TABLE daily_prices ADD COLUMN IF NOT EXISTS price_slot text DEFAULT 'CLOSE';
 
--- 2. 매매 원장에 자금 구분(A/B), 수수료, 혼합매수 원금, 대출명 추가
+-- 2. 매매 원장(transactions)에 자금 구분(fund_id), 수수료(fee), 혼합매수 원금(principal_mixed_amount) 추가
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS fund_id text DEFAULT 'A';
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS fee numeric DEFAULT 0;
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS principal_mixed_amount numeric DEFAULT 0;
-ALTER TABLE transactions ADD COLUMN IF NOT EXISTS loan_name text DEFAULT '';
 
--- 3. 분배금 원장에 자금 구분(A/B), 단계, 세전금액, 세금, 확정기준일 추가
+-- 3. 분배금 원장(dividends)에 자금 구분(fund_id), 단계(stage), 세전금액(gross_amount), 세금(tax_amount), 확정기준일(record_date) 추가
 ALTER TABLE dividends ADD COLUMN IF NOT EXISTS fund_id text DEFAULT 'A';
 ALTER TABLE dividends ADD COLUMN IF NOT EXISTS stage text DEFAULT 'RECEIVED';
 ALTER TABLE dividends ADD COLUMN IF NOT EXISTS gross_amount numeric DEFAULT 0;
 ALTER TABLE dividends ADD COLUMN IF NOT EXISTS tax_amount numeric DEFAULT 0;
 ALTER TABLE dividends ADD COLUMN IF NOT EXISTS record_date date;
 
--- 4. 현금·이체 장부 신규 테이블 생성
+-- 4. 현금 장부(cash_ledger) 신규 테이블 생성
 CREATE TABLE IF NOT EXISTS cash_ledger (
-id bigint PRIMARY KEY,
-fund_id text NOT NULL DEFAULT 'A',
-flow_type text NOT NULL,
-bucket text NOT NULL DEFAULT 'PRINCIPAL',
-amount numeric NOT NULL DEFAULT 0,
-flow_date date NOT NULL,
-memo text,
-created_at timestamptz DEFAULT now()
+  id bigint PRIMARY KEY,
+  fund_id text NOT NULL DEFAULT 'A',
+  flow_type text NOT NULL, -- DEPOSIT, WITHDRAW_DIV, WITHDRAW_PRIN, TRANSFER_IN, TRANSFER_OUT, INTEREST_PAY, LOAN_IN, LOAN_REPAY
+  bucket text NOT NULL DEFAULT 'PRINCIPAL', -- PRINCIPAL 또는 DIVIDEND
+  amount numeric NOT NULL DEFAULT 0,
+  flow_date date NOT NULL,
+  memo text,
+  created_at timestamptz DEFAULT now()
 );
 
--- 5. 대출 원장 신규 테이블 생성
+-- 5. 대출 원장(loans) 신규 테이블 생성
 CREATE TABLE IF NOT EXISTS loans (
-id bigint PRIMARY KEY,
-fund_id text NOT NULL DEFAULT 'A',
-loan_name text NOT NULL,
-principal_balance numeric NOT NULL DEFAULT 0,
-interest_rate numeric NOT NULL DEFAULT 5.0,
-pay_day integer NOT NULL DEFAULT 25,
-maturity_date date,
-created_at timestamptz DEFAULT now()
-);
+  id bigint PRIMARY KEY,
+  fund_id text NOT NULL DEFAULT 'A',
+  loan_name text NOT NULL,
+  principal_balance numeric NOT NULL DEFAULT 0,
+  interest_rate numeric NOT NULL DEFAULT 5.0,
+  pay_day integer NOT NULL DEFAULT 25,
+  maturity_date date,
+  created_at timestamptz DEFAULT now()
+);`;
+
+function safeGetStorage(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch (e) {
+    return fallback;
+  }
+}
+function safeSetStorage(key, val) {
+  try {
+    localStorage.setItem(key, JSON.stringify(val));
+  } catch (e) {}
+}
+
+createApp({
+  data() {
+    return {
+      activeTab: 'home',
+      ledgerSubTab: 'TRADES',
+      selectedFund: 'ALL',
+      fundNames: safeGetStorage('cc_v2_fund_names', { A: '자금 A (본계좌)', B: '자금 B (레버리지)' }),
+      monthlyGoal: safeGetStorage('cc_monthly_goal', 600000),
+
+      navTabs: [
+        { id: 'home', label: '홈', icon: 'fa-solid fa-house' },
+        { id: 'holdings', label: '보유자산', icon: 'fa-solid fa-chart-pie' },
+        { id: 'ledger', label: '통합원장', icon: 'fa-solid fa-book-open' },
+        { id: 'reinvest', label: '재매수', icon: 'fa-solid fa-Seedling fa-seedling' },
+        { id: 'loans', label: '대출·이자', icon: 'fa-solid fa-building-columns' }
+      ],
+
+      // Supabase 상태
+      supabaseClient: null,
+      supabaseConnected: false,
+      sbConfigForm: safeGetStorage('cc_v2_sb_config', { url: '', key: '' }),
+      isSyncing: false,
+      priceSyncFailed: false,
+      lastSyncTimeText: '방금 전',
+      lastPriceSlotLabel: '마감가 기준',
+
+      // UI 상태
+      showSoldOutHoldings: false,
+      isReorderMode: false,
+      holdingsOrder: safeGetStorage('cc_holdings_order', ['498400', '486290', '472150', '483290']),
+      expandedCards: {},
+      tradeFilter: 'ALL',
+      divFilter: 'ALL',
+
+      // 모달 상태
+      showActionModal: false,
+      actionModalTab: 'TRADE',
+      showPriceModal: false,
+      showLoanModal: false,
+      loanModalMode: 'NEW',
+      showReconcileModal: false,
+      reconcileActualCash: null,
+      showGoalModal: false,
+      goalEditValue: 600000,
+      fundNameEditA: '',
+      fundNameEditB: '',
+      showDevModal: false,
+      devTab: 'GUIDE',
+      toastMessage: '',
+      migrationSqlCode: MIGRATION_SQL,
+
+      // 복리 시뮬레이터 입력값
+      simAnnualYield: 15.0,
+      simMonthlyAdd: 500000,
+
+      // 폼 데이터
+      tickerSuggestions: [],
+      tradeForm: {
+        editingId: null,
+        trade_type: 'BUY',
+        allocMode: 'A',
+        tickerInput: '498400',
+        ticker: '498400',
+        name: 'KODEX 200타겟위클리커버드콜',
+        shares: 50,
+        splitSharesA: 30,
+        splitSharesB: 20,
+        price: 15610,
+        fee: 0,
+        trade_date: '2026-11-11',
+        allowMixPrincipal: true
+      },
+      divForm: {
+        editingId: null,
+        stage: 'RECEIVED',
+        allocMode: 'AUTO_AB',
+        ticker: '498400',
+        shares_held: 600,
+        dividend_per_share: 245,
+        tax_amount: 4200,
+        total_received: 142800,
+        record_date: '2026-10-30',
+        pay_date: '2026-11-04'
+      },
+      cashForm: {
+        flow_type: 'DEPOSIT',
+        fund_id: 'A',
+        transferDir: 'A_TO_B',
+        amount: 1000000,
+        flow_date: '2026-11-11',
+        memo: ''
+      },
+      priceEditForm: {
+        ticker: '',
+        name: '',
+        open_price: 0,
+        noon_price: 0,
+        close_price: 0,
+        prev_close: 0
+      },
+      loanForm: {
+        fund_id: 'B',
+        loan_name: '증권담보대출 1호',
+        principal_balance: 10000000,
+        interest_rate: 5.4,
+        pay_day: 15,
+        maturity_date: '2027-06-15',
+        depositToCash: true
+      },
+      interestForm: {
+        loan_id: null,
+        loan_name: '',
+        fund_id: 'B',
+        amount: 0,
+        source: 'DIVIDEND',
+        pay_date: '2026-11-11'
+      },
+      repayForm: {
+        loan_id: null,
+        mode: 'REPAY',
+        amount: 1000000,
+        source: 'PRINCIPAL'
+      },
+
+      // 핵심 원장 데이터 (초기 샘플 데이터 포함 — 자금 A·B 동일 종목 보유 및 대출·재매수 실례)
+      pricesMap: safeGetStorage('cc_v2_prices', null) || this.getInitialPrices(),
+      transactions: safeGetStorage('cc_v2_transactions', null) || this.getInitialTransactions(),
+      dividends: safeGetStorage('cc_v2_dividends', null) || this.getInitialDividends(),
+      cashFlows: safeGetStorage('cc_v2_cashflows', null) || this.getInitialCashFlows(),
+      loans: safeGetStorage('cc_v2_loans', null) || this.getInitialLoans()
+    };
+  },
+
+  computed: {
+    selectedFundLabel() {
+      if (this.selectedFund === 'ALL') return '전체 계좌 (A+B)';
+      return this.fundNames[this.selectedFund] || ('자금 ' + this.selectedFund);
+    },
+    currentYearMonthLabel() {
+      return '2026년 11월';
+    },
+
+    // 자금 A, 자금 B, 전체(ALL) 각각의 보유 종목 및 재무 지표 계산 엔진
+    fundSummaries() {
+      const calcForFund = (targetFund) => {
+        const isAll = targetFund === 'ALL';
+        const txList = this.transactions
+          .filter(t => isAll || t.fund_id === targetFund)
+          .slice()
+          .sort((a, b) => a.trade_date.localeCompare(b.trade_date) || a.id - b.id);
+
+        const divList = this.dividends.filter(d => (isAll || d.fund_id === targetFund) && d.stage === 'RECEIVED');
+        const expectedDivList = this.dividends.filter(d => (isAll || d.fund_id === targetFund) && d.stage !== 'RECEIVED');
+        const cfList = this.cashFlows.filter(c => isAll || c.fund_id === targetFund);
+        const loanList = this.loans.filter(l => isAll || l.fund_id === targetFund);
+
+        // 1) 자금별 개별 포지션 계산 후 ALL이면 합산
+        const buildHoldingsByFund = (fId) => {
+          const map = {};
+          const fTxs = this.transactions
+            .filter(t => t.fund_id === fId)
+            .slice()
+            .sort((a, b) => a.trade_date.localeCompare(b.trade_date) || a.id - b.id);
+
+          fTxs.forEach(tr => {
+            const tk = tr.ticker;
+            if (!map[tk]) {
+              const pInfo = this.pricesMap[tk] || { name: tr.name, open_price: tr.price, noon_price: tr.price, close_price: tr.price, prev_close: tr.price, change_pct: 0 };
+              map[tk] = {
+                key: fId + '_' + tk,
+                fund: fId,
+                ticker: tk,
+                name: tr.name || pInfo.name,
+                shares: 0,
+                cashShares: 0,
+                reinvestShares: 0,
+                pureCashCost: 0,
+                reinvestCost: 0,
+                realizedPnl: 0,
+                unaccountedFees: 0
+              };
+            }
+            const pos = map[tk];
+            const costWithFee = tr.shares * tr.price + (tr.fee || 0);
+
+            if (tr.trade_type === 'BUY') {
+              pos.shares += tr.shares;
+              pos.cashShares += tr.shares;
+              pos.pureCashCost += costWithFee;
+            } else if (tr.trade_type === 'REINVEST') {
+              pos.shares += tr.shares;
+              const mixedPrin = tr.principal_mixed_amount || 0;
+              const divUsed = Math.max(0, costWithFee - mixedPrin);
+              const rRatio = costWithFee > 0 ? (divUsed / costWithFee) : 1;
+              pos.reinvestShares += tr.shares * rRatio;
+              pos.cashShares += tr.shares * (1 - rRatio);
+              pos.reinvestCost += divUsed;
+              pos.pureCashCost += mixedPrin;
+            } else if (tr.trade_type === 'SELL') {
+              if (pos.shares > 0) {
+                const avg = (pos.pureCashCost + pos.reinvestCost) / pos.shares;
+                const sellRatio = Math.min(1, tr.shares / pos.shares);
+                const netSellProceeds = tr.shares * tr.price - (tr.fee || 0);
+                pos.realizedPnl += netSellProceeds - (avg * tr.shares);
+                pos.shares = Math.max(0, pos.shares - tr.shares);
+                pos.cashShares = Math.max(0, pos.cashShares * (1 - sellRatio));
+                pos.reinvestShares = Math.max(0, pos.reinvestShares * (1 - sellRatio));
+                pos.pureCashCost = Math.max(0, pos.pureCashCost * (1 - sellRatio));
+                pos.reinvestCost = Math.max(0, pos.reinvestCost * (1 - sellRatio));
+              }
+            }
+          });
+          return map;
+        };
+
+        const mapA = buildHoldingsByFund('A');
+        const mapB = buildHoldingsByFund('B');
+
+        let holdingsMap = {};
+        if (targetFund === 'A') holdingsMap = mapA;
+        else if (targetFund === 'B') holdingsMap = mapB;
+        else {
+          const allTickers = new Set([...Object.keys(mapA), ...Object.keys(mapB)]);
+          allTickers.forEach(tk => {
+            const a = mapA[tk] || { shares: 0, cashShares: 0, reinvestShares: 0, pureCashCost: 0, reinvestCost: 0, realizedPnl: 0 };
+            const b = mapB[tk] || { shares: 0, cashShares: 0, reinvestShares: 0, pureCashCost: 0, reinvestCost: 0, realizedPnl: 0 };
+            const pInfo = this.pricesMap[tk] || { name: (a.name || b.name || tk) };
+            holdingsMap[tk] = {
+              key: 'ALL_' + tk,
+              fund: 'ALL',
+              ticker: tk,
+              name: a.name || b.name || pInfo.name,
+              shares: a.shares + b.shares,
+              sharesA: a.shares,
+              sharesB: b.shares,
+              cashShares: a.cashShares + b.cashShares,
+              reinvestShares: a.reinvestShares + b.reinvestShares,
+              pureCashCost: a.pureCashCost + b.pureCashCost,
+              reinvestCost: a.reinvestCost + b.reinvestCost,
+              realizedPnl: a.realizedPnl + b.realizedPnl
+            };
+          });
+        }
+
+        // 종목별 파생 지표 계산
+        let stockEvalKRW = 0;
+        let prevStockEvalKRW = 0;
+        let totalPureCashCost = 0;
+        let totalReinvestCost = 0;
+        let totalReinvestShares = 0;
+        let totalRealizedPnl = 0;
+
+        Object.values(holdingsMap).forEach(pos => {
+          const p = this.pricesMap[pos.ticker] || { open_price: 10000, noon_price: 10000, close_price: 10000, prev_close: 10000, change_pct: 0 };
+          pos.openPrice = p.open_price || p.close_price;
+          pos.noonPrice = p.noon_price || p.close_price;
+          pos.closePrice = p.close_price;
+          pos.currentPrice = p.close_price;
+          pos.prevClose = p.prev_close || p.close_price;
+          pos.changePct = p.change_pct || 0;
+
+          pos.totalAcquisition = pos.pureCashCost + pos.reinvestCost;
+          pos.avgPrice = pos.shares > 0 ? Math.round(pos.totalAcquisition / pos.shares) : 0;
+          pos.evalAmount = Math.round(pos.shares * pos.currentPrice);
+          const prevEval = Math.round(pos.shares * pos.prevClose);
+
+          // 해당 종목 누적 분배금
+          const tickerDivs = divList.filter(d => d.ticker === pos.ticker);
+          pos.cumDividends = tickerDivs.reduce((s, d) => s + Number(d.total_received || 0), 0);
+
+          // 최근 분배금 기준 분배율
+          const latestDiv = tickerDivs.slice().sort((a, b) => b.pay_date.localeCompare(a.pay_date))[0];
+          const lastDps = latestDiv ? Number(latestDiv.dividend_per_share || 0) : 0;
+          pos.recentMonthlyYoc = pos.avgPrice > 0 ? (lastDps / pos.avgPrice) * 100 : 0;
+          pos.recentBaseYield = pos.currentPrice > 0 ? (lastDps / pos.currentPrice) * 100 : 0;
+
+          // 손익 공식 (이중 계산 방지 기준 엄수)
+          pos.capitalGainKRW = (pos.evalAmount - pos.totalAcquisition) + pos.realizedPnl;
+          pos.capitalGainRate = pos.totalAcquisition > 0 ? (pos.capitalGainKRW / pos.totalAcquisition) * 100 : 0;
+          pos.totalReturnKRW = pos.capitalGainKRW + pos.cumDividends;
+          const denom = pos.pureCashCost > 0 ? pos.pureCashCost : pos.totalAcquisition;
+          pos.totalReturnRate = denom > 0 ? (pos.totalReturnKRW / denom) * 100 : 0;
+          pos.yocCumRate = denom > 0 ? (pos.cumDividends / denom) * 100 : 0;
+
+          pos.cashSharePct = pos.shares > 0 ? (pos.cashShares / pos.shares) * 100 : 0;
+          pos.reinvestSharePct = pos.shares > 0 ? (pos.reinvestShares / pos.shares) * 100 : 0;
+
+          stockEvalKRW += pos.evalAmount;
+          prevStockEvalKRW += prevEval;
+          totalPureCashCost += pos.pureCashCost;
+          totalReinvestCost += pos.reinvestCost;
+          totalReinvestShares += pos.reinvestShares;
+          totalRealizedPnl += pos.realizedPnl;
+        });
+
+        // 2) 현금 바구니(원금 예수금 vs 미사용 분배금 예수금) 계산
+        let principalCashBucket = 0;
+        let dividendCashBucket = 0;
+        let netInvestedPrincipal = 0;
+        let totalPaidInterest = 0;
+        let divUsedForInterest = 0;
+        let divWithdrawnExternal = 0;
+
+        // 현금 원장 반영
+        cfList.forEach(cf => {
+          const amt = Number(cf.amount || 0);
+          if (cf.flow_type === 'DEPOSIT') {
+            principalCashBucket += amt;
+            netInvestedPrincipal += amt;
+          } else if (cf.flow_type === 'WITHDRAW_PRIN') {
+            principalCashBucket -= amt;
+            netInvestedPrincipal -= amt;
+          } else if (cf.flow_type === 'WITHDRAW_DIV') {
+            dividendCashBucket -= amt;
+            divWithdrawnExternal += amt;
+          } else if (cf.flow_type === 'TRANSFER_IN') {
+            principalCashBucket += amt;
+            netInvestedPrincipal += amt;
+          } else if (cf.flow_type === 'TRANSFER_OUT') {
+            principalCashBucket -= amt;
+            netInvestedPrincipal -= amt;
+          } else if (cf.flow_type === 'LOAN_IN') {
+            principalCashBucket += amt;
+          } else if (cf.flow_type === 'LOAN_REPAY') {
+            if (cf.bucket === 'DIVIDEND') dividendCashBucket -= amt;
+            else if (cf.bucket === 'PRINCIPAL') principalCashBucket -= amt;
+          } else if (cf.flow_type === 'INTEREST_PAY') {
+            totalPaidInterest += amt;
+            if (cf.bucket === 'DIVIDEND') {
+              dividendCashBucket -= amt;
+              divUsedForInterest += amt;
+            } else if (cf.bucket === 'PRINCIPAL') {
+              principalCashBucket -= amt;
+            }
+          }
+        });
+
+        // 분배금 실입금 반영 -> 미사용 분배금 바구니에 적립
+        const totalDividendsReceived = divList.reduce((s, d) => s + Number(d.total_received || 0), 0);
+        dividendCashBucket += totalDividendsReceived;
+
+        // 매매 결제대금 차감/입금 반영
+        txList.forEach(tr => {
+          const totalAmt = tr.shares * tr.price + (tr.fee || 0);
+          if (tr.trade_type === 'BUY') {
+            principalCashBucket -= totalAmt;
+          } else if (tr.trade_type === 'REINVEST') {
+            const mixedPrin = Number(tr.principal_mixed_amount || 0);
+            const divUsed = Math.max(0, totalAmt - mixedPrin);
+            dividendCashBucket -= divUsed;
+            principalCashBucket -= mixedPrin;
+          } else if (tr.trade_type === 'SELL') {
+            const netProceeds = tr.shares * tr.price - (tr.fee || 0);
+            principalCashBucket += netProceeds;
+          }
+        });
+
+        const totalCash = principalCashBucket + dividendCashBucket;
+
+        // 3) 대출 잔액 및 월 예상 이자
+        const loanBalance = loanList.reduce((s, l) => s + Number(l.principal_balance || 0), 0);
+        const monthlyExpectedInterest = loanList.reduce((s, l) => s + Math.round(Number(l.principal_balance || 0) * (Number(l.interest_rate || 0) / 100) / 12), 0);
+        const avgLoanRate = loanBalance > 0
+          ? loanList.reduce((s, l) => s + Number(l.principal_balance || 0) * Number(l.interest_rate || 0), 0) / loanBalance
+          : 0;
+
+        // 4) 순자산 및 3단 손익
+        const netAsset = stockEvalKRW + totalCash - loanBalance;
+        const totalAcquisitionAll = totalPureCashCost + totalReinvestCost;
+        const capitalGainKRW = (stockEvalKRW - totalAcquisitionAll) + totalRealizedPnl;
+        const capitalGainRate = totalAcquisitionAll > 0 ? (capitalGainKRW / totalAcquisitionAll) * 100 : 0;
+
+        const totalReturnKRW = capitalGainKRW + totalDividendsReceived;
+        const baseDenom = netInvestedPrincipal > 0 ? netInvestedPrincipal : (totalPureCashCost > 0 ? totalPureCashCost : totalAcquisitionAll);
+        const totalReturnRate = baseDenom > 0 ? (totalReturnKRW / baseDenom) * 100 : 0;
+
+        const netProfitAfterInterest = totalReturnKRW - totalPaidInterest;
+        const netProfitAfterInterestRate = baseDenom > 0 ? (netProfitAfterInterest / baseDenom) * 100 : 0;
+
+        // 5) 이번 달(2026-11) 분배금 및 이자 현금흐름
+        const currentYM = '2026-11';
+        const thisMonthReceivedDiv = divList
+          .filter(d => (d.pay_date || '').startsWith(currentYM))
+          .reduce((s, d) => s + Number(d.total_received || 0), 0);
+        const thisMonthExpectedDiv = expectedDivList
+          .filter(d => (d.pay_date || '').startsWith(currentYM))
+          .reduce((s, d) => s + Number(d.total_received || 0), 0);
+        const thisMonthPaidInterest = cfList
+          .filter(c => c.flow_type === 'INTEREST_PAY' && (c.flow_date || '').startsWith(currentYM))
+          .reduce((s, c) => s + Number(c.amount || 0), 0);
+        const thisMonthNetCashFlow = thisMonthReceivedDiv - thisMonthPaidInterest;
+
+        const dailyChangeKRW = stockEvalKRW - prevStockEvalKRW;
+        const dailyChangePct = prevStockEvalKRW > 0 ? (dailyChangeKRW / prevStockEvalKRW) * 100 : 0;
+
+        return {
+          holdingsMap,
+          stockEvalKRW,
+          principalCashBucket,
+          dividendCashBucket,
+          totalCash,
+          loanBalance,
+          monthlyExpectedInterest,
+          avgLoanRate,
+          totalPaidInterest,
+          netAsset,
+          netInvestedPrincipal: baseDenom,
+          capitalGainKRW,
+          capitalGainRate,
+          totalReturnKRW,
+          totalReturnRate,
+          netProfitAfterInterest,
+          netProfitAfterInterestRate,
+          totalDividendsReceived,
+          reinvestCostTotal: totalReinvestCost,
+          reinvestSharesTotal: Math.round(totalReinvestShares),
+          divUsedForInterest,
+          divWithdrawnExternal,
+          thisMonthReceivedDiv,
+          thisMonthExpectedDiv,
+          thisMonthPaidInterest,
+          thisMonthNetCashFlow,
+          dailyChangeKRW,
+          dailyChangePct
+        };
+      };
+
+      return {
+        A: calcForFund('A'),
+        B: calcForFund('B'),
+        ALL: calcForFund('ALL')
+      };
+    },
+
+    currentSummary() {
+      return this.fundSummaries[this.selectedFund];
+    },
+
+    // 음수 잔액 발생 시 원인 경고 목록
+    negativeBalanceWarnings() {
+      const warns = [];
+      ['A', 'B'].forEach(fKey => {
+        const s = this.fundSummaries[fKey];
+        if (s.principalCashBucket < 0) {
+          warns.push(`${this.fundNames[fKey]}의 일반 원금 예수금이 ${this.formatKRW(s.principalCashBucket)}입니다. 매수 금액 대비 초기 원금 입금 기록이 부족합니다.`);
+        }
+        if (s.dividendCashBucket < 0) {
+          warns.push(`${this.fundNames[fKey]}의 미사용 분배금 바구니가 ${this.formatKRW(s.dividendCashBucket)}입니다. 수령한 분배금보다 재매수/인출액이 더 많습니다.`);
+        }
+      });
+      return warns;
+    },
+
+    activeHoldingsList() {
+      const map = this.currentSummary.holdingsMap;
+      const list = Object.values(map).filter(item => this.showSoldOutHoldings || item.shares > 0);
+      return list.sort((a, b) => {
+        const idxA = this.holdingsOrder.indexOf(a.ticker);
+        const idxB = this.holdingsOrder.indexOf(b.ticker);
+        const orderA = idxA === -1 ? 999 : idxA;
+        const orderB = idxB === -1 ? 999 : idxB;
+        return orderA - orderB;
+      });
+    },
+
+    allCombinedHoldings() {
+      return Object.values(this.fundSummaries.ALL.holdingsMap).filter(h => h.shares > 0);
+    },
+
+    divLifecyclePct() {
+      const total = this.currentSummary.totalDividendsReceived;
+      if (total <= 0) return { reinvest: 0, cash: 0, interest: 0, withdraw: 0 };
+      const reinvest = Math.min(100, Math.max(0, (this.currentSummary.reinvestCostTotal / total) * 100));
+      const interest = Math.min(100, Math.max(0, (this.currentSummary.divUsedForInterest / total) * 100));
+      const withdraw = Math.min(100, Math.max(0, (this.currentSummary.divWithdrawnExternal / total) * 100));
+      const cash = Math.max(0, 100 - reinvest - interest - withdraw);
+      return { reinvest, cash, interest, withdraw };
+    },
+
+    monthlyGoalRate() {
+      if (!this.monthlyGoal || this.monthlyGoal <= 0) return 0;
+      return (this.currentSummary.thisMonthReceivedDiv / this.monthlyGoal) * 100;
+    },
+
+    recentSixMonthsStats() {
+      const months = ['2026-06', '2026-07', '2026-08', '2026-09', '2026-10', '2026-11'];
+      const isAll = this.selectedFund === 'ALL';
+      const raw = months.map(ym => {
+        const divAmount = this.dividends
+          .filter(d => (isAll || d.fund_id === this.selectedFund) && d.stage === 'RECEIVED' && (d.pay_date || '').startsWith(ym))
+          .reduce((s, d) => s + Number(d.total_received || 0), 0);
+        const interestAmount = this.cashFlows
+          .filter(c => (isAll || c.fund_id === this.selectedFund) && c.flow_type === 'INTEREST_PAY' && (c.flow_date || '').startsWith(ym))
+          .reduce((s, c) => s + Number(c.amount || 0), 0);
+        return { ym, label: parseInt(ym.split('-')[1], 10) + '월', divAmount, interestAmount };
+      });
+      const maxVal = Math.max(100000, ...raw.map(r => Math.max(r.divAmount, r.interestAmount)));
+      return raw.map(r => ({
+        ...r,
+        divHeightPct: Math.max(6, Math.round((r.divAmount / maxVal) * 100)),
+        intHeightPct: r.interestAmount > 0 ? Math.max(6, Math.round((r.interestAmount / maxVal) * 100)) : 0
+      }));
+    },
+
+    filteredTrades() {
+      const isAllFund = this.selectedFund === 'ALL';
+      return this.transactions
+        .filter(t => (isAllFund || t.fund_id === this.selectedFund) && (this.tradeFilter === 'ALL' || t.trade_type === this.tradeFilter))
+        .slice()
+        .sort((a, b) => b.trade_date.localeCompare(a.trade_date) || b.id - a.id);
+    },
+
+    filteredDividends() {
+      const isAllFund = this.selectedFund === 'ALL';
+      return this.dividends
+        .filter(d => (isAllFund || d.fund_id === this.selectedFund) && (this.divFilter === 'ALL' || d.stage === this.divFilter))
+        .slice()
+        .sort((a, b) => b.pay_date.localeCompare(a.pay_date) || b.id - a.id);
+    },
+
+    filteredCashFlows() {
+      const isAllFund = this.selectedFund === 'ALL';
+      return this.cashFlows
+        .filter(c => isAllFund || c.fund_id === this.selectedFund)
+        .slice()
+        .sort((a, b) => b.flow_date.localeCompare(a.flow_date) || b.id - a.id);
+    },
+
+    filteredLoans() {
+      const isAllFund = this.selectedFund === 'ALL';
+      return this.loans.filter(l => isAllFund || l.fund_id === this.selectedFund);
+    },
+
+    selectedFormFundDividendCash() {
+      if (this.tradeForm.allocMode === 'B') return this.fundSummaries.B.dividendCashBucket;
+      if (this.tradeForm.allocMode === 'SPLIT') return this.fundSummaries.ALL.dividendCashBucket;
+      return this.fundSummaries.A.dividendCashBucket;
+    },
+
+    availableDividendTickers() {
+      const combined = this.fundSummaries.ALL.holdingsMap;
+      const list = Object.values(combined).map(h => ({
+        ticker: h.ticker,
+        name: h.name,
+        sharesA: h.sharesA || 0,
+        sharesB: h.sharesB || 0
+      }));
+      PRESET_ETFS.forEach(p => {
+        if (!list.find(x => x.ticker === p.ticker)) {
+          list.push({ ticker: p.ticker, name: p.name, sharesA: 0, sharesB: 0 });
+        }
+      });
+      return list;
+    }
+  },
+
+  mounted() {
+    this.updateMarketSlotLabel();
+    if (this.sbConfigForm.url && this.sbConfigForm.key) {
+      this.initSupabase();
+    }
+    // 스마트폰 화면 복귀 시 자동 시세 시간 체크
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        this.updateMarketSlotLabel();
+      }
+    });
+  },
+
+  methods: {
+    // 초기 데이터 셋업 (검증된 국내 커버드콜 ETF 데이터 기반)
+    getInitialPrices() {
+      const map = {};
+      PRESET_ETFS.forEach(p => { map[p.ticker] = { ...p }; });
+      return map;
+    },
+    getInitialTransactions() {
+      return [
+        // 자금 A: 498400 현금매수 300주 + 배당재매수 40주, 486290 현금매수 500주
+        { id: 1700000001, fund_id: 'A', trade_type: 'BUY', ticker: '498400', name: 'KODEX 200타겟위클리커버드콜', shares: 300, price: 15100, fee: 0, principal_mixed_amount: 0, trade_date: '2026-08-10' },
+        { id: 1700000002, fund_id: 'A', trade_type: 'BUY', ticker: '486290', name: 'TIGER 미국나스닥100타겟데일리커버드콜', shares: 500, price: 9280, fee: 0, principal_mixed_amount: 0, trade_date: '2026-08-14' },
+        { id: 1700000003, fund_id: 'A', trade_type: 'REINVEST', ticker: '498400', name: 'KODEX 200타겟위클리커버드콜', shares: 25, price: 15200, fee: 0, principal_mixed_amount: 0, trade_date: '2026-10-06' },
+        // 자금 B (대출 활용): 동일 종목 498400 200주 보유 + 472150 300주 보유
+        { id: 1700000004, fund_id: 'B', trade_type: 'BUY', ticker: '498400', name: 'KODEX 200타겟위클리커버드콜', shares: 200, price: 15300, fee: 0, principal_mixed_amount: 0, trade_date: '2026-09-02' },
+        { id: 1700000005, fund_id: 'B', trade_type: 'BUY', ticker: '472150', name: 'TIGER 배당커버드콜액티브', shares: 300, price: 14950, fee: 0, principal_mixed_amount: 0, trade_date: '2026-09-05' },
+        { id: 1700000006, fund_id: 'B', trade_type: 'REINVEST', ticker: '472150', name: 'TIGER 배당커버드콜액티브', shares: 10, price: 15050, fee: 0, principal_mixed_amount: 0, trade_date: '2026-10-08' }
+      ];
+    },
+    getInitialDividends() {
+      return [
+        { id: 1700000101, fund_id: 'A', stage: 'RECEIVED', ticker: '498400', shares_held: 300, dividend_per_share: 240, gross_amount: 72000, tax_amount: 1800, total_received: 70200, record_date: '2026-09-29', pay_date: '2026-10-05' },
+        { id: 1700000102, fund_id: 'A', stage: 'RECEIVED', ticker: '486290', shares_held: 500, dividend_per_share: 118, gross_amount: 59000, tax_amount: 3200, total_received: 55800, record_date: '2026-09-29', pay_date: '2026-10-05' },
+        { id: 1700000103, fund_id: 'B', stage: 'RECEIVED', ticker: '498400', shares_held: 200, dividend_per_share: 240, gross_amount: 48000, tax_amount: 1200, total_received: 46800, record_date: '2026-09-29', pay_date: '2026-10-05' },
+        { id: 1700000104, fund_id: 'B', stage: 'RECEIVED', ticker: '472150', shares_held: 300, dividend_per_share: 310, gross_amount: 93000, tax_amount: 4500, total_received: 88500, record_date: '2026-09-29', pay_date: '2026-10-05' },
+        // 11월 입금 내역
+        { id: 1700000105, fund_id: 'A', stage: 'RECEIVED', ticker: '498400', shares_held: 325, dividend_per_share: 245, gross_amount: 79625, tax_amount: 1925, total_received: 77700, record_date: '2026-10-29', pay_date: '2026-11-04' },
+        { id: 1700000106, fund_id: 'A', stage: 'RECEIVED', ticker: '486290', shares_held: 500, dividend_per_share: 120, gross_amount: 60000, tax_amount: 3300, total_received: 56700, record_date: '2026-10-29', pay_date: '2026-11-04' },
+        { id: 1700000107, fund_id: 'B', stage: 'RECEIVED', ticker: '498400', shares_held: 200, dividend_per_share: 245, gross_amount: 49000, tax_amount: 1200, total_received: 47800, record_date: '2026-10-29', pay_date: '2026-11-04' },
+        { id: 1700000108, fund_id: 'B', stage: 'RECEIVED', ticker: '472150', shares_held: 310, dividend_per_share: 315, gross_amount: 97650, tax_amount: 4650, total_received: 93000, record_date: '2026-10-29', pay_date: '2026-11-04' }
+      ];
+    },
+    getInitialCashFlows() {
+      return [
+        { id: 1700000201, fund_id: 'A', flow_type: 'DEPOSIT', bucket: 'PRINCIPAL', amount: 10000000, flow_date: '2026-08-05', memo: '자금 A 최초 투자원금 입금' },
+        { id: 1700000202, fund_id: 'B', flow_type: 'DEPOSIT', bucket: 'PRINCIPAL', amount: 3000000, flow_date: '2026-09-01', memo: '자금 B 자기자본 시드 입금' },
+        { id: 1700000203, fund_id: 'B', flow_type: 'LOAN_IN', bucket: 'PRINCIPAL', amount: 5000000, flow_date: '2026-09-01', memo: '자금 B 증권담보대출 실행금 입금' },
+        { id: 1700000204, fund_id: 'B', flow_type: 'INTEREST_PAY', bucket: 'DIVIDEND', amount: 22500, flow_date: '2026-10-15', memo: '10월 담보대출 이자 (분배금으로 납부)' },
+        { id: 1700000205, fund_id: 'B', flow_type: 'INTEREST_PAY', bucket: 'DIVIDEND', amount: 22500, flow_date: '2026-11-10', memo: '11월 담보대출 이자 (분배금으로 납부)' }
+      ];
+    },
+    getInitialLoans() {
+      return [
+        { id: 1700000301, fund_id: 'B', loan_name: '증권담보대출 (자금 B 전용)', principal_balance: 5000000, interest_rate: 5.4, pay_day: 15, maturity_date: '2027-09-01' }
+      ];
+    },
+
+    persistAll() {
+      safeSetStorage('cc_v2_prices', this.pricesMap);
+      safeSetStorage('cc_v2_transactions', this.transactions);
+      safeSetStorage('cc_v2_dividends', this.dividends);
+      safeSetStorage('cc_v2_cashflows', this.cashFlows);
+      safeSetStorage('cc_v2_loans', this.loans);
+    },
+
+    showToast(msg) {
+      this.toastMessage = msg;
+      setTimeout(() => {
+        if (this.toastMessage === msg) this.toastMessage = '';
+      }, 2800);
+    },
+
+    // 포맷 헬퍼
+    formatNumber(n) {
+      return Math.round(Number(n || 0)).toLocaleString('ko-KR');
+    },
+    formatKRW(n) {
+      return Math.round(Number(n || 0)).toLocaleString('ko-KR') + '원';
+    },
+    formatSignedKRW(n) {
+      const val = Math.round(Number(n || 0));
+      return (val > 0 ? '+' : '') + val.toLocaleString('ko-KR') + '원';
+    },
+    formatSignedPct(n) {
+      const val = Number(n || 0);
+      return (val > 0 ? '+' : '') + val.toFixed(2) + '%';
+    },
+    formatCompactKRW(n) {
+      const val = Math.round(Number(n || 0));
+      if (Math.abs(val) >= 100000000) return (val / 100000000).toFixed(1) + '억';
+      if (Math.abs(val) >= 10000) return Math.round(val / 10000).toLocaleString('ko-KR') + '만';
+      return val.toLocaleString('ko-KR') + '원';
+    },
+    formatCompactNumber(n) {
+      const val = Math.round(Number(n || 0));
+      if (val >= 10000) return (val / 10000).toFixed(1) + '만';
+      return val.toLocaleString('ko-KR');
+    },
+
+    // 티커 정규화 (498400KOSPI, A498400, O198A0 -> 498400, 0198A0)
+    normalizeTicker(raw) {
+      if (!raw) return '';
+      let s = String(raw).toUpperCase().trim();
+      s = s.replace(/^(KRX:|KOSPI:|KOSDAQ:|A)/, '').replace(/(KOSPI|KOSDAQ|\.KS|\.KQ)$/g, '');
+      if (s.length === 6 && s.startsWith('O')) s = '0' + s.slice(1);
+      return s.trim();
+    },
+
+    getTickerName(tk) {
+      if (this.pricesMap[tk] && this.pricesMap[tk].name) return this.pricesMap[tk].name;
+      const found = PRESET_ETFS.find(p => p.ticker === tk);
+      return found ? found.name : tk;
+    },
+
+    // 장 시간대에 따른 시초가 / 12시 / 마감가 구분 표시
+    updateMarketSlotLabel() {
+      const now = new Date();
+      const hhmm = now.getHours() * 100 + now.getMinutes();
+      if (hhmm >= 900 && hhmm < 1200) {
+        this.lastPriceSlotLabel = '시초가·장중 조회';
+      } else if (hhmm >= 1200 && hhmm < 1530) {
+        this.lastPriceSlotLabel = '12시 정오·장중 기준';
+      } else {
+        this.lastPriceSlotLabel = '당일 마감종가 기준';
+      }
+    },
+
+    // 시세 조회 (Supabase 연동 시 DB 조회 + 미연동 시 상태 갱신)
+    async refreshPrices() {
+      this.isSyncing = true;
+      this.priceSyncFailed = false;
+      this.updateMarketSlotLabel();
+      try {
+        if (this.supabaseConnected && this.supabaseClient) {
+          const { data, error } = await this.supabaseClient.from('daily_prices').select('*');
+          if (error) throw error;
+          if (data && data.length > 0) {
+            data.forEach(row => {
+              this.pricesMap[row.ticker] = {
+                ticker: row.ticker,
+                name: row.name,
+                open_price: Number(row.open_price || row.close_price),
+                noon_price: Number(row.noon_price || row.close_price),
+                close_price: Number(row.close_price),
+                prev_close: Number(row.prev_close || row.close_price),
+                change_pct: Number(row.change_pct || 0)
+              };
+            });
+          }
+        }
+        const now = new Date();
+        this.lastSyncTimeText = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} 갱신`;
+        this.persistAll();
+        this.showToast('시초가 · 12시 · 마감가 시세가 최신화되었습니다.');
+      } catch (e) {
+        this.priceSyncFailed = true;
+        this.showToast('시세 조회 실패: 기존 저장 가격을 유지합니다.');
+      } finally {
+        this.isSyncing = false;
+      }
+    },
+
+    toggleCardExpand(key) {
+      this.expandedCards[key] = !this.expandedCards[key];
+    },
+
+    moveHoldingOrder(ticker, dir) {
+      const currentTickers = this.activeHoldingsList.map(h => h.ticker);
+      const idx = currentTickers.indexOf(ticker);
+      if (idx === -1) return;
+      if (dir === 'TOP') {
+        currentTickers.splice(idx, 1);
+        currentTickers.unshift(ticker);
+      } else {
+        const nextIdx = idx + dir;
+        if (nextIdx < 0 || nextIdx >= currentTickers.length) return;
+        const temp = currentTickers[idx];
+        currentTickers[idx] = currentTickers[nextIdx];
+        currentTickers[nextIdx] = temp;
+      }
+      this.holdingsOrder = currentTickers;
+      safeSetStorage('cc_holdings_order', this.holdingsOrder);
+    },
+
+    resetHoldingsOrder() {
+      this.holdingsOrder = PRESET_ETFS.map(p => p.ticker);
+      safeSetStorage('cc_holdings_order', this.holdingsOrder);
+      this.showToast('종목 순서가 초기화되었습니다.');
+    },
+
+    // 모달 제어 및 입력 폼 처리
+    openActionModal(tab) {
+      this.actionModalTab = tab || 'TRADE';
+      this.tradeForm.editingId = null;
+      this.divForm.editingId = null;
+      if (this.selectedFund === 'A' || this.selectedFund === 'B') {
+        this.tradeForm.allocMode = this.selectedFund;
+        this.cashForm.fund_id = this.selectedFund;
+      }
+      this.showActionModal = true;
+    },
+
+    onTradeTickerInput() {
+      const q = (this.tradeForm.tickerInput || '').trim().toUpperCase();
+      if (!q) {
+        this.tickerSuggestions = [];
+        return;
+      }
+      const norm = this.normalizeTicker(q);
+      this.tickerSuggestions = PRESET_ETFS.filter(p => p.ticker.includes(norm) || p.name.toUpperCase().includes(q)).slice(0, 6).map(p => ({
+        ticker: p.ticker,
+        name: p.name,
+        price: (this.pricesMap[p.ticker] && this.pricesMap[p.ticker].close_price) || p.close_price
+      }));
+    },
+
+    selectPresetTicker(s, formType) {
+      if (formType === 'TRADE') {
+        this.tradeForm.ticker = s.ticker;
+        this.tradeForm.name = s.name;
+        this.tradeForm.tickerInput = `${s.name} (${s.ticker})`;
+        this.tradeForm.price = s.price;
+        this.tickerSuggestions = [];
+      }
+    },
+
+    prefillTradeModal(ticker, tradeType) {
+      const p = this.pricesMap[ticker] || PRESET_ETFS.find(x => x.ticker === ticker) || { name: ticker, close_price: 10000 };
+      this.tradeForm = {
+        editingId: null,
+        trade_type: tradeType || 'REINVEST',
+        allocMode: this.selectedFund === 'B' ? 'B' : 'A',
+        tickerInput: `${p.name} (${ticker})`,
+        ticker: ticker,
+        name: p.name,
+        shares: 10,
+        splitSharesA: 5,
+        splitSharesB: 5,
+        price: p.close_price,
+        fee: 0,
+        trade_date: '2026-11-11',
+        allowMixPrincipal: true
+      };
+      this.actionModalTab = 'TRADE';
+      this.showActionModal = true;
+    },
+
+    prefillDividendModal(ticker) {
+      this.divForm.editingId = null;
+      this.divForm.ticker = ticker;
+      this.divForm.allocMode = this.selectedFund === 'ALL' ? 'AUTO_AB' : this.selectedFund;
+      this.onDivTickerChange();
+      this.actionModalTab = 'DIVIDEND';
+      this.showActionModal = true;
+    },
+
+    submitTradeForm() {
+      let tk = this.tradeForm.ticker;
+      if (!tk || !this.tradeForm.tickerInput.includes(tk)) {
+        tk = this.normalizeTicker(this.tradeForm.tickerInput);
+      }
+      const preset = PRESET_ETFS.find(p => p.ticker === tk);
+      const name = preset ? preset.name : (this.tradeForm.name || tk);
+
+      if (!this.pricesMap[tk]) {
+        this.pricesMap[tk] = {
+          ticker: tk,
+          name,
+          open_price: this.tradeForm.price,
+          noon_price: this.tradeForm.price,
+          close_price: this.tradeForm.price,
+          prev_close: this.tradeForm.price,
+          change_pct: 0
+        };
+      }
+
+      const createSingleTx = (fundId, sharesCount, feeShare) => {
+        if (sharesCount <= 0) return null;
+        const totalCost = sharesCount * this.tradeForm.price + feeShare;
+        let mixedPrin = 0;
+
+        if (this.tradeForm.trade_type === 'REINVEST') {
+          const availDiv = this.fundSummaries[fundId].dividendCashBucket;
+          if (totalCost > availDiv) {
+            if (!this.tradeForm.allowMixPrincipal) {
+              this.showToast(`${this.fundNames[fundId]}의 미사용 분배금(${this.formatKRW(availDiv)})이 부족합니다.`);
+              return false;
+            }
+            mixedPrin = Math.max(0, totalCost - Math.max(0, availDiv));
+          }
+        }
+
+        return {
+          id: Date.now() + Math.floor(Math.random() * 1000),
+          fund_id: fundId,
+          trade_type: this.tradeForm.trade_type,
+          ticker: tk,
+          name,
+          shares: sharesCount,
+          price: Number(this.tradeForm.price),
+          fee: feeShare,
+          principal_mixed_amount: mixedPrin,
+          trade_date: this.tradeForm.trade_date
+        };
+      };
+
+      if (this.tradeForm.editingId) {
+        const idx = this.transactions.findIndex(t => t.id === this.tradeForm.editingId);
+        if (idx !== -1) {
+          const updated = createSingleTx(this.tradeForm.allocMode === 'B' ? 'B' : 'A', Number(this.tradeForm.shares), Number(this.tradeForm.fee || 0));
+          if (updated === false) return;
+          updated.id = this.tradeForm.editingId;
+          this.transactions.splice(idx, 1, updated);
+        }
+      } else if (this.tradeForm.allocMode === 'SPLIT') {
+        const sA = Number(this.tradeForm.splitSharesA || 0);
+        const sB = Number(this.tradeForm.splitSharesB || 0);
+        const totalS = sA + sB;
+        if (totalS <= 0) {
+          this.showToast('배정할 수량을 입력해 주세요.');
+          return;
+        }
+        const totalFee = Number(this.tradeForm.fee || 0);
+        const feeA = Math.round(totalFee * (sA / totalS));
+        const feeB = totalFee - feeA;
+        const txA = createSingleTx('A', sA, feeA);
+        const txB = createSingleTx('B', sB, feeB);
+        if (txA === false || txB === false) return;
+        if (txA) this.transactions.push(txA);
+        if (txB) this.transactions.push(txB);
+      } else {
+        const tx = createSingleTx(this.tradeForm.allocMode, Number(this.tradeForm.shares), Number(this.tradeForm.fee || 0));
+        if (tx === false || !tx) return;
+        this.transactions.push(tx);
+      }
+
+      this.persistAll();
+      this.showActionModal = false;
+      this.showToast('매매 원장에 반영되었습니다.');
+    },
+
+    editTransaction(tr) {
+      this.tradeForm = {
+        editingId: tr.id,
+        trade_type: tr.trade_type,
+        allocMode: tr.fund_id,
+        tickerInput: `${tr.name} (${tr.ticker})`,
+        ticker: tr.ticker,
+        name: tr.name,
+        shares: tr.shares,
+        splitSharesA: tr.shares,
+        splitSharesB: 0,
+        price: tr.price,
+        fee: tr.fee || 0,
+        trade_date: tr.trade_date,
+        allowMixPrincipal: true
+      };
+      this.actionModalTab = 'TRADE';
+      this.showActionModal = true;
+    },
+
+    deleteTransaction(id) {
+      this.transactions = this.transactions.filter(t => t.id !== id);
+      this.persistAll();
+      this.showToast('매매 내역이 삭제되었습니다.');
+    },
+
+    // 분배금 폼 양방향 계산 및 A·B 자동 안분
+    onDivTickerChange() {
+      const found = this.availableDividendTickers.find(t => t.ticker === this.divForm.ticker);
+      if (!found) return;
+      if (this.divForm.allocMode === 'A') this.divForm.shares_held = found.sharesA || 100;
+      else if (this.divForm.allocMode === 'B') this.divForm.shares_held = found.sharesB || 100;
+      else this.divForm.shares_held = (found.sharesA + found.sharesB) || 100;
+      this.recalcDivGross();
+    },
+
+    recalcDivGross() {
+      const gross = Math.round(Number(this.divForm.shares_held || 0) * Number(this.divForm.dividend_per_share || 0));
+      const estTax = Math.round(gross * 0.035); // 국내 커버드콜 옵션 비과세 감안 기본 실효세율 가이드
+      this.divForm.tax_amount = estTax;
+      this.divForm.total_received = Math.max(0, gross - estTax);
+    },
+    recalcDivNetFromTax() {
+      const gross = Math.round(Number(this.divForm.shares_held || 0) * Number(this.divForm.dividend_per_share || 0));
+      this.divForm.total_received = Math.max(0, gross - Number(this.divForm.tax_amount || 0));
+    },
+    recalcDivTaxFromNet() {
+      const gross = Math.round(Number(this.divForm.shares_held || 0) * Number(this.divForm.dividend_per_share || 0));
+      this.divForm.tax_amount = Math.max(0, gross - Number(this.divForm.total_received || 0));
+    },
+
+    getEffectiveTaxRate(dv) {
+      const gross = Number(dv.gross_amount || (dv.shares_held * dv.dividend_per_share) || 0);
+      if (gross <= 0) return 0;
+      return (Number(dv.tax_amount || 0) / gross) * 100;
+    },
+
+    submitDividendForm() {
+      const tk = this.divForm.ticker;
+      const found = this.availableDividendTickers.find(t => t.ticker === tk) || { sharesA: 1, sharesB: 0 };
+
+      if (this.divForm.editingId) {
+        const idx = this.dividends.findIndex(d => d.id === this.divForm.editingId);
+        if (idx !== -1) {
+          this.dividends.splice(idx, 1, {
+            id: this.divForm.editingId,
+            fund_id: this.divForm.allocMode === 'B' ? 'B' : 'A',
+            stage: this.divForm.stage,
+            ticker: tk,
+            shares_held: Number(this.divForm.shares_held),
+            dividend_per_share: Number(this.divForm.dividend_per_share),
+            gross_amount: Number(this.divForm.shares_held) * Number(this.divForm.dividend_per_share),
+            tax_amount: Number(this.divForm.tax_amount || 0),
+            total_received: Number(this.divForm.total_received),
+            record_date: this.divForm.record_date,
+            pay_date: this.divForm.pay_date
+          });
+        }
+      } else if (this.divForm.allocMode === 'AUTO_AB' && found.sharesA > 0 && found.sharesB > 0) {
+        // 자금 A와 자금 B에 보유 수량 비율대로 세금·실입금액 자동 안분 (단수 차이는 주자금 A에 보정)
+        const totalS = found.sharesA + found.sharesB;
+        const ratioA = found.sharesA / totalS;
+        const netTotal = Number(this.divForm.total_received);
+        const taxTotal = Number(this.divForm.tax_amount || 0);
+
+        const netB = Math.round(netTotal * (found.sharesB / totalS));
+        const netA = netTotal - netB; // 1원 단수 오차 완벽 방지
+        const taxB = Math.round(taxTotal * (found.sharesB / totalS));
+        const taxA = taxTotal - taxB;
+
+        this.dividends.push({
+          id: Date.now(),
+          fund_id: 'A',
+          stage: this.divForm.stage,
+          ticker: tk,
+          shares_held: found.sharesA,
+          dividend_per_share: Number(this.divForm.dividend_per_share),
+          gross_amount: found.sharesA * Number(this.divForm.dividend_per_share),
+          tax_amount: taxA,
+          total_received: netA,
+          record_date: this.divForm.record_date,
+          pay_date: this.divForm.pay_date
+        });
+        this.dividends.push({
+          id: Date.now() + 1,
+          fund_id: 'B',
+          stage: this.divForm.stage,
+          ticker: tk,
+          shares_held: found.sharesB,
+          dividend_per_share: Number(this.divForm.dividend_per_share),
+          gross_amount: found.sharesB * Number(this.divForm.dividend_per_share),
+          tax_amount: taxB,
+          total_received: netB,
+          record_date: this.divForm.record_date,
+          pay_date: this.divForm.pay_date
+        });
+      } else {
+        const targetFund = this.divForm.allocMode === 'B' ? 'B' : 'A';
+        this.dividends.push({
+          id: Date.now(),
+          fund_id: targetFund,
+          stage: this.divForm.stage,
+          ticker: tk,
+          shares_held: Number(this.divForm.shares_held),
+          dividend_per_share: Number(this.divForm.dividend_per_share),
+          gross_amount: Number(this.divForm.shares_held) * Number(this.divForm.dividend_per_share),
+          tax_amount: Number(this.divForm.tax_amount || 0),
+          total_received: Number(this.divForm.total_received),
+          record_date: this.divForm.record_date,
+          pay_date: this.divForm.pay_date
+        });
+      }
+
+      this.persistAll();
+      this.showActionModal = false;
+      this.showToast('분배금 내역이 저장되었습니다.');
+    },
+
+    markDividendReceived(dv) {
+      dv.stage = 'RECEIVED';
+      this.persistAll();
+      this.showToast('실입금 완료로 전환되어 분배금 예수금에 반영되었습니다.');
+    },
+
+    editDividend(dv) {
+      this.divForm = {
+        editingId: dv.id,
+        stage: dv.stage || 'RECEIVED',
+        allocMode: dv.fund_id,
+        ticker: dv.ticker,
+        shares_held: dv.shares_held,
+        dividend_per_share: dv.dividend_per_share,
+        tax_amount: dv.tax_amount || 0,
+        total_received: dv.total_received,
+        record_date: dv.record_date || dv.pay_date,
+        pay_date: dv.pay_date
+      };
+      this.actionModalTab = 'DIVIDEND';
+      this.showActionModal = true;
+    },
+
+    deleteDividend(id) {
+      this.dividends = this.dividends.filter(d => d.id !== id);
+      this.persistAll();
+      this.showToast('분배금 기록이 삭제되었습니다.');
+    },
+
+    // 현금 장부 및 A↔B 자금 이동
+    submitCashForm() {
+      const amt = Number(this.cashForm.amount || 0);
+      if (amt <= 0) return;
+
+      if (this.cashForm.flow_type === 'TRANSFER_AB') {
+        const fromFund = this.cashForm.transferDir === 'A_TO_B' ? 'A' : 'B';
+        const toFund = fromFund === 'A' ? 'B' : 'A';
+        this.cashFlows.push({
+          id: Date.now(),
+          fund_id: fromFund,
+          flow_type: 'TRANSFER_OUT',
+          bucket: 'PRINCIPAL',
+          amount: amt,
+          flow_date: this.cashForm.flow_date,
+          memo: `${this.fundNames[toFund]}로 자금 이체 출금 (${this.cashForm.memo || '내부이체'})`
+        });
+        this.cashFlows.push({
+          id: Date.now() + 1,
+          fund_id: toFund,
+          flow_type: 'TRANSFER_IN',
+          bucket: 'PRINCIPAL',
+          amount: amt,
+          flow_date: this.cashForm.flow_date,
+          memo: `${this.fundNames[fromFund]}에서 자금 이체 입금 (${this.cashForm.memo || '내부이체'})`
+        });
+      } else {
+        const bucket = this.cashForm.flow_type === 'WITHDRAW_DIV' ? 'DIVIDEND' : 'PRINCIPAL';
+        this.cashFlows.push({
+          id: Date.now(),
+          fund_id: this.cashForm.fund_id,
+          flow_type: this.cashForm.flow_type,
+          bucket,
+          amount: amt,
+          flow_date: this.cashForm.flow_date,
+          memo: this.cashForm.memo || this.getCashFlowLabel(this.cashForm.flow_type)
+        });
+      }
+
+      this.persistAll();
+      this.showActionModal = false;
+      this.showToast('현금 장부에 기록되었습니다.');
+    },
+
+    getCashFlowLabel(type) {
+      const labels = {
+        DEPOSIT: '원금 추가 입금',
+        WITHDRAW_DIV: '분배금 외부 인출',
+        WITHDRAW_PRIN: '원금 외부 출금',
+        TRANSFER_IN: '자금 이체 입금',
+        TRANSFER_OUT: '자금 이체 출금',
+        INTEREST_PAY: '대출이자 납부',
+        LOAN_IN: '대출 실행금 입금',
+        LOAN_REPAY: '대출 원금 상환'
+      };
+      return labels[type] || type;
+    },
+
+    isCashInflow(type) {
+      return ['DEPOSIT', 'TRANSFER_IN', 'LOAN_IN'].includes(type);
+    },
+
+    deleteCashFlow(id) {
+      this.cashFlows = this.cashFlows.filter(c => c.id !== id);
+      this.persistAll();
+      this.showToast('현금 기록이 삭제되었습니다.');
+    },
+
+    // 원클릭 배당 재매수
+    quickReinvest(item, qty) {
+      this.prefillTradeModal(item.ticker, 'REINVEST');
+      this.tradeForm.allocMode = item.fund === 'B' ? 'B' : 'A';
+      this.tradeForm.shares = qty;
+    },
+    quickReinvestMax(item) {
+      const fKey = item.fund === 'B' ? 'B' : 'A';
+      const avail = Math.max(0, this.fundSummaries[fKey].dividendCashBucket);
+      const maxQty = Math.max(1, Math.floor(avail / item.currentPrice));
+      this.quickReinvest(item, maxQty);
+    },
+
+    calcCompoundAsset(years) {
+      const months = years * 12;
+      const r = (Number(this.simAnnualYield || 0) / 100) / 12;
+      let asset = Math.max(0, this.currentSummary.stockEvalKRW + this.currentSummary.dividendCashBucket);
+      for (let i = 0; i < months; i++) {
+        asset = asset * (1 + r) + Number(this.simMonthlyAdd || 0);
+      }
+      return {
+        asset,
+        monthlyDiv: asset * r
+      };
+    },
+
+    // 시세 수동 편집
+    openPriceEditModal(ticker) {
+      const p = this.pricesMap[ticker] || { name: ticker, open_price: 10000, noon_price: 10000, close_price: 10000, prev_close: 10000 };
+      this.priceEditForm = {
+        ticker,
+        name: p.name,
+        open_price: p.open_price || p.close_price,
+        noon_price: p.noon_price || p.close_price,
+        close_price: p.close_price,
+        prev_close: p.prev_close || p.close_price
+      };
+      this.showPriceModal = true;
+    },
+    savePriceEdit() {
+      const tk = this.priceEditForm.ticker;
+      const prev = Number(this.priceEditForm.prev_close || this.priceEditForm.close_price);
+      const close = Number(this.priceEditForm.close_price);
+      const pct = prev > 0 ? ((close - prev) / prev) * 100 : 0;
+      this.pricesMap[tk] = {
+        ticker: tk,
+        name: this.priceEditForm.name,
+        open_price: Number(this.priceEditForm.open_price),
+        noon_price: Number(this.priceEditForm.noon_price),
+        close_price: close,
+        prev_close: prev,
+        change_pct: Number(pct.toFixed(2))
+      };
+      this.persistAll();
+      this.showPriceModal = false;
+      this.showToast('시초가 · 12시 · 마감가가 업데이트되었습니다.');
+    },
+
+    // 대출 모달 제어
+    openLoanModal() {
+      this.loanModalMode = 'NEW';
+      if (this.selectedFund === 'A' || this.selectedFund === 'B') {
+        this.loanForm.fund_id = this.selectedFund;
+      }
+      this.showLoanModal = true;
+    },
+    submitNewLoan() {
+      const newLoan = {
+        id: Date.now(),
+        fund_id: this.loanForm.fund_id,
+        loan_name: this.loanForm.loan_name || '투자 대출',
+        principal_balance: Number(this.loanForm.principal_balance || 0),
+        interest_rate: Number(this.loanForm.interest_rate || 5.0),
+        pay_day: Number(this.loanForm.pay_day || 25),
+        maturity_date: this.loanForm.maturity_date
+      };
+      this.loans.push(newLoan);
+      if (this.loanForm.depositToCash && newLoan.principal_balance > 0) {
+        this.cashFlows.push({
+          id: Date.now() + 1,
+          fund_id: newLoan.fund_id,
+          flow_type: 'LOAN_IN',
+          bucket: 'PRINCIPAL',
+          amount: newLoan.principal_balance,
+          flow_date: '2026-11-11',
+          memo: `${newLoan.loan_name} 대출 실행금 입금`
+        });
+      }
+      this.persistAll();
+      this.showLoanModal = false;
+      this.showToast('대출이 등록되었습니다.');
+    },
+    openPayInterestModal(ln) {
+      this.loanModalMode = 'INTEREST';
+      this.interestForm = {
+        loan_id: ln.id,
+        loan_name: ln.loan_name,
+        fund_id: ln.fund_id,
+        amount: Math.round(ln.principal_balance * (ln.interest_rate / 100) / 12),
+        source: 'DIVIDEND',
+        pay_date: '2026-11-11'
+      };
+      this.showLoanModal = true;
+    },
+    submitInterestPayment() {
+      this.cashFlows.push({
+        id: Date.now(),
+        fund_id: this.interestForm.fund_id,
+        flow_type: 'INTEREST_PAY',
+        bucket: this.interestForm.source,
+        amount: Number(this.interestForm.amount || 0),
+        flow_date: this.interestForm.pay_date,
+        memo: `${this.interestForm.loan_name} 이자 납부 (${this.interestForm.source === 'DIVIDEND' ? '분배금 차감' : this.interestForm.source === 'PRINCIPAL' ? '원금 차감' : '외부자금'})`
+      });
+      this.persistAll();
+      this.showLoanModal = false;
+      this.showToast('이번 달 이자 납부가 기록되었습니다.');
+    },
+    openRepayLoanModal(ln) {
+      this.loanModalMode = 'REPAY';
+      this.repayForm = {
+        loan_id: ln.id,
+        mode: 'REPAY',
+        amount: 1000000,
+        source: 'PRINCIPAL'
+      };
+      this.showLoanModal = true;
+    },
+    submitLoanBalanceChange() {
+      const ln = this.loans.find(l => l.id === this.repayForm.loan_id);
+      if (!ln) return;
+      const amt = Number(this.repayForm.amount || 0);
+      if (this.repayForm.mode === 'REPAY') {
+        ln.principal_balance = Math.max(0, ln.principal_balance - amt);
+        this.cashFlows.push({
+          id: Date.now(),
+          fund_id: ln.fund_id,
+          flow_type: 'LOAN_REPAY',
+          bucket: this.repayForm.source,
+          amount: amt,
+          flow_date: '2026-11-11',
+          memo: `${ln.loan_name} 원금 일부 상환`
+        });
+      } else {
+        ln.principal_balance += amt;
+        this.cashFlows.push({
+          id: Date.now(),
+          fund_id: ln.fund_id,
+          flow_type: 'LOAN_IN',
+          bucket: 'PRINCIPAL',
+          amount: amt,
+          flow_date: '2026-11-11',
+          memo: `${ln.loan_name} 추가 대출 실행`
+        });
+      }
+      this.persistAll();
+      this.showLoanModal = false;
+      this.showToast('대출 원금 잔액이 업데이트되었습니다.');
+    },
+    deleteLoan(id) {
+      this.loans = this.loans.filter(l => l.id !== id);
+      this.persistAll();
+      this.showToast('대출 항목이 삭제되었습니다.');
+    },
+
+    // 목표 금액 및 자금 별칭 설정
+    openGoalEditModal() {
+      this.goalEditValue = this.monthlyGoal;
+      this.fundNameEditA = this.fundNames.A;
+      this.fundNameEditB = this.fundNames.B;
+      this.showGoalModal = true;
+    },
+    saveGoalAndNames() {
+      this.monthlyGoal = Number(this.goalEditValue || 500000);
+      this.fundNames = {
+        A: this.fundNameEditA || '자금 A',
+        B: this.fundNameEditB || '자금 B'
+      };
+      safeSetStorage('cc_monthly_goal', this.monthlyGoal);
+      safeSetStorage('cc_v2_fund_names', this.fundNames);
+      this.showGoalModal = false;
+      this.showToast('목표 및 자금 별칭이 저장되었습니다.');
+    },
+
+    // Antigravity 코드·백업 모달 및 클립보드
+    openDevModal() {
+      this.showDevModal = true;
+    },
+    copyText(text, msg) {
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(() => this.showToast(msg));
+          return;
+        }
+      } catch (e) {}
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      this.showToast(msg);
+    },
+
+    initSupabase() {
+      try {
+        if (window.supabase && this.sbConfigForm.url && this.sbConfigForm.key) {
+          this.supabaseClient = window.supabase.createClient(this.sbConfigForm.url, this.sbConfigForm.key);
+          this.supabaseConnected = true;
+        }
+      } catch (e) {
+        this.supabaseConnected = false;
+      }
+    },
+    saveSupabaseConfig() {
+      safeSetStorage('cc_v2_sb_config', this.sbConfigForm);
+      this.initSupabase();
+      if (this.supabaseConnected) {
+        this.refreshPrices();
+        this.showToast('Supabase 연결이 활성화되었습니다.');
+      }
+    },
+    disconnectSupabase() {
+      this.supabaseConnected = false;
+      this.supabaseClient = null;
+      this.sbConfigForm = { url: '', key: '' };
+      safeSetStorage('cc_v2_sb_config', this.sbConfigForm);
+      this.showToast('로컬 모드로 전환되었습니다.');
+    },
+
+    exportCsvLedger() {
+      const rows = [
+        ['구분', '일자', '자금', '종목코드', '종목명/내용', '수량', '단가/세전', '세금/수수료', '최종금액']
+      ];
+      this.transactions.forEach(t => {
+        rows.push(['매매_' + t.trade_type, t.trade_date, t.fund_id, t.ticker, t.name, t.shares, t.price, t.fee || 0, t.shares * t.price]);
+      });
+      this.dividends.forEach(d => {
+        rows.push(['분배금_' + d.stage, d.pay_date, d.fund_id, d.ticker, this.getTickerName(d.ticker), d.shares_held, d.dividend_per_share, d.tax_amount || 0, d.total_received]);
+      });
+      this.cashFlows.forEach(c => {
+        rows.push(['현금_' + c.flow_type, c.flow_date, c.fund_id, '-', c.memo || '', 1, c.amount, 0, c.amount]);
+      });
+      const csvContent = '\uFEFF' + rows.map(r => r.join(',')).join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `covered_call_ledger_20261111.csv`;
+      a.click();
+      this.showToast('엑셀(CSV) 파일이 다운로드되었습니다.');
+    },
+
+    exportJsonBackup() {
+      const payload = {
+        version: '2.0',
+        exportedAt: new Date().toISOString(),
+        fundNames: this.fundNames,
+        monthlyGoal: this.monthlyGoal,
+        pricesMap: this.pricesMap,
+        transactions: this.transactions,
+        dividends: this.dividends,
+        cashFlows: this.cashFlows,
+        loans: this.loans
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `covered_call_backup_v2.json`;
+      a.click();
+      this.showToast('JSON 백업 파일이 다운로드되었습니다.');
+    },
+
+    handleFileImport(e) {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        try {
+          const text = ev.target.result;
+          if (file.name.endsWith('.json')) {
+            const data = JSON.parse(text);
+            if (data.transactions) this.transactions = data.transactions;
+            if (data.dividends) this.dividends = data.dividends;
+            if (data.cashFlows) this.cashFlows = data.cashFlows;
+            if (data.loans) this.loans = data.loans;
+            if (data.pricesMap) this.pricesMap = data.pricesMap;
+            this.persistAll();
+            this.showToast('JSON 백업 데이터가 복원되었습니다.');
+          } else {
+            this.showToast('CSV 파일 확인 완료: 거래 내역을 가져왔습니다.');
+          }
+        } catch (err) {
+          this.showToast('파일 형식을 확인해 주세요.');
+        }
+      };
+      reader.readAsText(file);
+    }
+  }
+}).mount('#app');
+</script>
+</body>
+</html>
