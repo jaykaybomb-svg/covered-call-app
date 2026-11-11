@@ -1599,7 +1599,7 @@ createApp({
       activeTab: 'home',
       ledgerSubTab: 'TRADES',
       selectedFund: 'ALL',
-      fundNames: safeGetStorage('cc_v2_fund_names', { A: '자금 A (본계좌)', B: '자금 B (레버리지)' }),
+      fundNames: safeGetStorage('cc_v2_fund_names', { A: '자금 A', B: '자금 B' }),
       monthlyGoal: safeGetStorage('cc_monthly_goal', 600000),
 
       navTabs: [
@@ -3127,6 +3127,14 @@ createApp({
             if (data.cashFlows) this.cashFlows = data.cashFlows;
             if (data.loans) this.loans = data.loans;
             if (data.pricesMap) this.pricesMap = data.pricesMap;
+            if (data.fundNames) {
+              this.fundNames = data.fundNames;
+              safeSetStorage('cc_v2_fund_names', this.fundNames);
+            }
+            if (data.monthlyGoal) {
+              this.monthlyGoal = data.monthlyGoal;
+              safeSetStorage('cc_monthly_goal', this.monthlyGoal);
+            }
             this.persistAll();
             this.showToast('JSON 전체 백업 데이터가 복원되었습니다.');
           } catch (err) {
