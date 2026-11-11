@@ -10,6 +10,7 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/vue@3.4.21/dist/vue.global.prod.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.7/dist/umd/supabase.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -22,7 +23,10 @@
     body {
       background-color: #F2F4F6;
       color: #191F28;
-      padding-bottom: env(safe-area-inset-bottom, 84px);
+      padding-bottom: calc(env(safe-area-inset-bottom, 20px) + 76px);
+    }
+    .ios-safe-header {
+      padding-top: max(calc(env(safe-area-inset-top, 44px) + 14px), 56px);
     }
     .toss-card {
       background: #FFFFFF;
@@ -50,8 +54,8 @@
 <body class="min-h-screen select-none">
 <div id="app" v-cloak class="max-w-lg mx-auto min-h-screen flex flex-col justify-between pb-24">
 
-  <!-- 상단 고정 헤더 & 자금 선택 바 -->
-  <header class="sticky top-0 z-30 bg-[#F2F4F6]/95 backdrop-blur-md px-4 pt-3 pb-2.5 border-b border-gray-200/70">
+  <!-- 상단 고정 헤더 & 자금 선택 바 (아이폰 다이내믹 아일랜드/카메라섬 여백 적용) -->
+  <header class="sticky top-0 z-30 bg-[#F2F4F6]/95 backdrop-blur-md px-4 pb-3 border-b border-gray-200/70 ios-safe-header">
     <div class="flex items-center justify-between mb-2.5">
       <div class="flex items-center gap-2">
         <div class="w-8 h-8 rounded-xl bg-[#3182F6] flex items-center justify-center text-white font-extrabold text-sm shadow-sm">
@@ -59,26 +63,22 @@
         </div>
         <div>
           <div class="flex items-center gap-1.5">
-            <h1 class="text-base font-extrabold tracking-tight text-[#191F28]">국장 커버드콜 장부</h1>
+            <h1 class="text-base font-extrabold tracking-tight text-[#191F28]">CC관리</h1>
             <span class="text-[10px] font-bold px-1.5 py-0.5 rounded-md" :class="supabaseConnected ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-700'">
-              {{ supabaseConnected ? 'Supabase 연동됨' : '로컬 저장 모드' }}
+              {{ supabaseConnected ? 'DB연동' : '로컬모드' }}
             </span>
           </div>
           <div class="flex items-center gap-1.5 text-[11px] text-[#8B95A1]">
             <span>시세기준: {{ lastPriceSlotLabel }} ({{ lastSyncTimeText }})</span>
-            <span v-if="priceSyncFailed" class="text-amber-600 font-semibold">· 갱신 실패(기존가 유지)</span>
+            <span v-if="priceSyncFailed" class="text-amber-600 font-semibold">· 갱신 실패</span>
           </div>
         </div>
       </div>
 
       <div class="flex items-center gap-1.5">
-        <button @click="refreshPrices()" :disabled="isSyncing" class="px-2.5 py-1.5 rounded-xl bg-white text-[#4E5968] text-xs font-semibold shadow-sm border border-gray-200/60 flex items-center gap-1 active:scale-95 transition">
+        <button @click="refreshPrices()" :disabled="isSyncing" class="px-3 py-1.5 rounded-xl bg-white text-[#4E5968] text-xs font-semibold shadow-sm border border-gray-200/60 flex items-center gap-1.5 active:scale-95 transition">
           <i class="fa-solid fa-rotate" :class="{'fa-spin text-[#3182F6]': isSyncing}"></i>
           <span>시세조회</span>
-        </button>
-        <button @click="openDevModal()" class="px-2.5 py-1.5 rounded-xl bg-gray-900 text-white text-xs font-semibold shadow-sm flex items-center gap-1 active:scale-95 transition" title="Antigravity 코드 복사 및 백업">
-          <i class="fa-solid fa-code"></i>
-          <span>코드·백업</span>
         </button>
       </div>
     </div>
@@ -503,19 +503,23 @@
           </div>
         </div>
 
-        <!-- 현금 투입 주수 vs 배당 재매수 주수 비율 게이지 -->
-        <div v-if="item.shares > 0" class="space-y-1">
-          <div class="flex justify-between text-[11px]">
+        <!-- 내 원금 매수 vs 대출금 매수 vs 배당 재매수(복리) 3단 주식 식별 게이지 -->
+        <div v-if="item.shares > 0" class="space-y-1.5">
+          <div class="flex items-center justify-between text-[11px] flex-wrap gap-1">
             <span class="text-[#4E5968] font-medium">
-              원금매수 <b>{{ formatNumber(item.cashShares) }}주</b> ({{ item.cashSharePct.toFixed(0) }}%)
+              내원금 <b>{{ formatNumber(item.cashShares) }}주</b> ({{ item.cashSharePct.toFixed(0) }}%)
+            </span>
+            <span v-if="item.loanShares > 0" class="text-amber-600 font-extrabold bg-amber-50 px-1.5 py-0.5 rounded">
+              <i class="fa-solid fa-bolt mr-0.5"></i>대출매수 <b>{{ formatNumber(item.loanShares) }}주</b> ({{ item.loanSharePct.toFixed(0) }}%)
             </span>
             <span class="text-[#3182F6] font-bold">
-              배당재매수(복리) <b>{{ formatNumber(item.reinvestShares) }}주</b> ({{ item.reinvestSharePct.toFixed(0) }}%)
+              배당복리 <b>{{ formatNumber(item.reinvestShares) }}주</b> ({{ item.reinvestSharePct.toFixed(0) }}%)
             </span>
           </div>
-          <div class="w-full h-2 bg-gray-200 rounded-full overflow-hidden flex">
-            <div class="bg-slate-600 h-full" :style="{ width: item.cashSharePct + '%' }"></div>
-            <div class="bg-[#3182F6] h-full" :style="{ width: item.reinvestSharePct + '%' }"></div>
+          <div class="w-full h-2.5 bg-gray-200 rounded-full overflow-hidden flex">
+            <div class="bg-slate-600 h-full" :style="{ width: item.cashSharePct + '%' }" title="내 원금 매수"></div>
+            <div class="bg-amber-500 h-full" :style="{ width: item.loanSharePct + '%' }" title="대출금 매수"></div>
+            <div class="bg-[#3182F6] h-full" :style="{ width: item.reinvestSharePct + '%' }" title="배당금 재매수(복리)"></div>
           </div>
         </div>
 
@@ -534,16 +538,24 @@
         <div v-if="expandedCards[item.key]" class="bg-[#F9FAFB] rounded-2xl p-3.5 text-xs space-y-2 border border-gray-100">
           <div class="grid grid-cols-2 gap-2">
             <div class="flex justify-between">
-              <span class="text-[#6B7684]">순수 현금 원금</span>
+              <span class="text-[#6B7684]">내 순수 현금원금</span>
               <span class="font-bold">{{ formatKRW(item.pureCashCost) }}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-amber-700 font-semibold">대출금 매입원금</span>
+              <span class="font-extrabold text-amber-600">{{ formatKRW(item.loanCost) }} ({{ formatNumber(item.loanShares) }}주)</span>
             </div>
             <div class="flex justify-between">
               <span class="text-[#6B7684]">배당 재매수 원금</span>
               <span class="font-bold text-[#3182F6]">{{ formatKRW(item.reinvestCost) }}</span>
             </div>
             <div class="flex justify-between">
-              <span class="text-[#6B7684]">총 매입 원금</span>
+              <span class="text-[#6B7684]">총 매입 원금(합계)</span>
               <span class="font-bold">{{ formatKRW(item.totalAcquisition) }}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-[#6B7684]">대출주식 현재평가액</span>
+              <span class="font-bold text-amber-700">{{ formatKRW(Math.round(item.loanShares * item.currentPrice)) }}</span>
             </div>
             <div class="flex justify-between">
               <span class="text-[#6B7684]">기실현 매도손익</span>
@@ -602,7 +614,7 @@
       <div v-if="ledgerSubTab === 'TRADES'" class="space-y-3">
         <div class="flex items-center justify-between">
           <div class="flex gap-1.5 overflow-x-auto no-scrollbar">
-            <button v-for="flt in [{k:'ALL', l:'전체'}, {k:'BUY', l:'현금매수'}, {k:'REINVEST', l:'배당재매수'}, {k:'SELL', l:'매도'}]" :key="flt.k"
+            <button v-for="flt in [{k:'ALL', l:'전체'}, {k:'BUY', l:'내원금매수'}, {k:'LOAN_BUY', l:'대출금매수'}, {k:'REINVEST', l:'배당재매수'}, {k:'SELL', l:'매도'}]" :key="flt.k"
               @click="tradeFilter = flt.k"
               class="px-3 py-1.5 rounded-xl text-xs font-bold shrink-0 transition"
               :class="tradeFilter === flt.k ? 'bg-gray-900 text-white' : 'bg-white text-[#6B7684]'">
@@ -620,8 +632,8 @@
                 {{ fundNames[tr.fund_id] }}
               </span>
               <span class="text-[10px] font-extrabold px-1.5 py-0.5 rounded"
-                :class="tr.trade_type === 'BUY' ? 'bg-red-50 text-red-600' : tr.trade_type === 'REINVEST' ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-700'">
-                {{ tr.trade_type === 'BUY' ? '현금매수' : tr.trade_type === 'REINVEST' ? '분배금 재매수' : '매도' }}
+                :class="tr.trade_type === 'BUY' ? 'bg-red-50 text-red-600' : tr.trade_type === 'LOAN_BUY' ? 'bg-amber-100 text-amber-800' : tr.trade_type === 'REINVEST' ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-700'">
+                {{ tr.trade_type === 'BUY' ? '내원금 매수' : tr.trade_type === 'LOAN_BUY' ? '대출금 매수' : tr.trade_type === 'REINVEST' ? '분배금 재매수' : '매도' }}
               </span>
               <span class="text-xs font-bold text-[#191F28] truncate">{{ tr.name }} ({{ tr.ticker }})</span>
             </div>
@@ -635,7 +647,8 @@
                 분배금 {{ formatKRW(tr.shares * tr.price + (tr.fee || 0) - tr.principal_mixed_amount) }} + 추가원금 {{ formatKRW(tr.principal_mixed_amount) }} 혼합
               </span>
               <span v-else-if="tr.trade_type === 'REINVEST'" class="text-[#3182F6] font-semibold">미사용 분배금 예수금 사용</span>
-              <span v-else-if="tr.trade_type === 'BUY'">일반 원금 예수금 투입</span>
+              <span v-else-if="tr.trade_type === 'LOAN_BUY'" class="text-amber-700 font-bold">대출금 레버리지 투입 {{ tr.loan_name ? '(' + tr.loan_name + ')' : '' }}</span>
+              <span v-else-if="tr.trade_type === 'BUY'">내 순수 원금 예수금 투입</span>
               <span v-else>매도 결제대금 → 원금 예수금 입금</span>
             </div>
           </div>
@@ -892,6 +905,17 @@
         </div>
       </div>
 
+      <!-- 하단 데이터 관리 (엑셀 내보내기/가져오기 & DB 연결 설정) -->
+      <div class="toss-card p-4 flex items-center justify-between">
+        <div>
+          <div class="text-xs font-extrabold text-[#191F28]">엑셀(.xlsx) 백업 및 DB 연결 설정</div>
+          <div class="text-[11px] text-[#8B95A1]">엑셀 가져오기·내보내기 및 Supabase 연동 관리</div>
+        </div>
+        <button @click="devTab = 'BACKUP'; openDevModal()" class="px-3 py-2 rounded-xl bg-[#F2F4F6] text-[#4E5968] text-xs font-bold">
+          <i class="fa-solid fa-gear mr-1"></i>백업·설정
+        </button>
+      </div>
+
     </section>
 
   </main>
@@ -929,13 +953,19 @@
 
       <!-- 1-A. 주식 매매 입력 폼 (자금 A / B / A·B 분할 배정 지원) -->
       <div v-if="actionModalTab === 'TRADE'" class="space-y-3 text-xs">
-        <div class="grid grid-cols-3 gap-1.5 bg-[#F2F4F6] p-1 rounded-xl">
-          <button @click="tradeForm.trade_type = 'BUY'" class="py-2 rounded-lg font-extrabold"
+        <div class="grid grid-cols-4 gap-1 bg-[#F2F4F6] p-1 rounded-xl">
+          <button @click="tradeForm.trade_type = 'BUY'" class="py-2 rounded-lg font-extrabold text-[11px]"
             :class="tradeForm.trade_type === 'BUY' ? 'bg-white text-red-600 shadow-xs' : 'text-[#6B7684]'">현금 매수</button>
-          <button @click="tradeForm.trade_type = 'REINVEST'" class="py-2 rounded-lg font-extrabold"
+          <button @click="tradeForm.trade_type = 'LOAN_BUY'" class="py-2 rounded-lg font-extrabold text-[11px]"
+            :class="tradeForm.trade_type === 'LOAN_BUY' ? 'bg-white text-amber-600 shadow-xs' : 'text-[#6B7684]'">대출금 매수</button>
+          <button @click="tradeForm.trade_type = 'REINVEST'" class="py-2 rounded-lg font-extrabold text-[11px]"
             :class="tradeForm.trade_type === 'REINVEST' ? 'bg-white text-[#3182F6] shadow-xs' : 'text-[#6B7684]'">분배금 재매수</button>
-          <button @click="tradeForm.trade_type = 'SELL'" class="py-2 rounded-lg font-extrabold"
+          <button @click="tradeForm.trade_type = 'SELL'" class="py-2 rounded-lg font-extrabold text-[11px]"
             :class="tradeForm.trade_type === 'SELL' ? 'bg-white text-gray-900 shadow-xs' : 'text-[#6B7684]'">매도</button>
+        </div>
+        <div v-if="tradeForm.trade_type === 'LOAN_BUY'" class="bg-amber-50 border border-amber-200 p-2.5 rounded-xl flex items-center justify-between">
+          <span class="text-[11px] font-bold text-amber-800"><i class="fa-solid fa-bolt mr-1"></i>대출금 매수 태그 (보유종목에서 대출주수로 별도 식별)</span>
+          <input type="text" v-model="tradeForm.loan_name" placeholder="대출명 (예: 담보대출)" class="w-32 px-2 py-1 bg-white rounded border border-amber-300 text-[11px] font-bold" />
         </div>
 
         <!-- 자금 귀속 방식 (자금 A / 자금 B / 한 번의 매수를 A·B에 나눠 배정) -->
@@ -1400,9 +1430,19 @@
         </div>
       </div>
 
-      <!-- 탭 C: 엑셀(CSV) 내보내기 / 가져오기 & JSON 전체 백업 -->
+      <!-- 탭 C: 엑셀(.xlsx / .csv) 내보내기 · 가져오기(미리보기) · JSON 백업 -->
       <div v-if="devTab === 'BACKUP'" class="space-y-3 text-xs">
         <div class="grid grid-cols-2 gap-2">
+          <button @click="exportExcelWorkbook()" class="p-3 rounded-2xl bg-emerald-50 text-emerald-700 border border-emerald-200 font-extrabold text-left space-y-1">
+            <i class="fa-solid fa-file-excel text-base"></i>
+            <div>엑셀(.xlsx) 내보내기</div>
+            <div class="text-[10px] font-normal text-emerald-800">4개 시트(대출주식 식별 포함) 저장</div>
+          </button>
+          <button @click="downloadExcelTemplate()" class="p-3 rounded-2xl bg-blue-50 text-[#3182F6] border border-blue-200 font-extrabold text-left space-y-1">
+            <i class="fa-solid fa-table text-base"></i>
+            <div>엑셀 업로드 양식(.xlsx)</div>
+            <div class="text-[10px] font-normal text-[#4E5968]">일괄입력용 표준 양식 다운로드</div>
+          </button>
           <button @click="exportCsvLedger()" class="p-3 rounded-2xl bg-[#E8F3FF] text-[#3182F6] font-extrabold text-left space-y-1">
             <i class="fa-solid fa-file-csv text-base"></i>
             <div>엑셀(CSV) 내보내기</div>
@@ -1415,9 +1455,47 @@
           </button>
         </div>
 
-        <div class="bg-[#F9FAFB] p-3.5 rounded-2xl border border-gray-200 space-y-2">
-          <div class="font-bold text-[#191F28]">엑셀(CSV) 또는 JSON 백업 불러오기</div>
-          <input type="file" accept=".json,.csv" @change="handleFileImport($event)" class="text-[11px] w-full" />
+        <div class="bg-[#F9FAFB] p-3.5 rounded-2xl border border-gray-200 space-y-2.5">
+          <div class="flex items-center justify-between">
+            <span class="font-extrabold text-[#191F28]">엑셀(.xlsx / .csv) 또는 JSON 파일 가져오기</span>
+            <select v-model="excelDefaultFund" class="px-2 py-1 rounded-lg bg-white border text-[11px] font-bold">
+              <option value="A">미지정 행 기본값: 자금 A</option>
+              <option value="B">미지정 행 기본값: 자금 B</option>
+            </select>
+          </div>
+          <p class="text-[11px] text-[#6B7684]">
+            엑셀 파일을 선택하면 <b>미리보기 및 중복 검사</b>를 거친 뒤 원하는 내역만 안전하게 반영합니다. (매수구분에 <code>BUY</code>, <code>LOAN_BUY</code>, <code>REINVEST</code>, <code>SELL</code> 지원)
+          </p>
+          <input type="file" accept=".xlsx,.xls,.csv,.json" @change="handleFileImport($event)" class="text-[11px] w-full" />
+
+          <!-- 엑셀 업로드 미리보기 박스 -->
+          <div v-if="importPreviewRows.length > 0" class="mt-2 bg-white rounded-xl p-3 border border-blue-200 space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="font-extrabold text-[#3182F6]">
+                업로드 미리보기 (총 {{ importPreviewRows.length }}건 / 신규 {{ importPreviewNewCount }}건 · 중복 {{ importPreviewRows.length - importPreviewNewCount }}건)
+              </span>
+              <button @click="importPreviewRows = []" class="text-[11px] text-gray-400">취소</button>
+            </div>
+            <div class="max-h-36 overflow-y-auto divide-y divide-gray-100 text-[11px]">
+              <div v-for="(row, rIdx) in importPreviewRows" :key="rIdx" class="py-1.5 flex items-center justify-between gap-2">
+                <div class="truncate">
+                  <span class="font-bold px-1 py-0.5 rounded text-[10px] mr-1"
+                    :class="row.isDuplicate ? 'bg-gray-200 text-gray-500' : 'bg-blue-50 text-blue-700'">
+                    {{ row.isDuplicate ? '중복제외' : row.category }}
+                  </span>
+                  <span class="font-bold">[자금{{ row.fund_id }}]</span>
+                  <span>{{ row.date }} · {{ row.title }} ({{ formatKRW(row.amount) }})</span>
+                </div>
+                <select v-model="row.fund_id" class="px-1.5 py-0.5 border rounded text-[10px] font-bold">
+                  <option value="A">자금A</option>
+                  <option value="B">자금B</option>
+                </select>
+              </div>
+            </div>
+            <button @click="confirmExcelImport()" class="w-full toss-btn-primary py-2 rounded-xl font-extrabold text-xs">
+              중복 제외 {{ importPreviewNewCount }}건 장부에 일괄 저장하기
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -1466,6 +1544,8 @@ ALTER TABLE daily_prices ADD COLUMN IF NOT EXISTS price_slot text DEFAULT 'CLOSE
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS fund_id text DEFAULT 'A';
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS fee numeric DEFAULT 0;
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS principal_mixed_amount numeric DEFAULT 0;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS loan_name text DEFAULT '';
+-- trade_type 값으로 'BUY'(내원금), 'LOAN_BUY'(대출매수), 'REINVEST'(배당재매수), 'SELL'(매도) 사용
 
 -- 3. 분배금 원장(dividends)에 자금 구분(fund_id), 단계(stage), 세전금액(gross_amount), 세금(tax_amount), 확정기준일(record_date) 추가
 ALTER TABLE dividends ADD COLUMN IF NOT EXISTS fund_id text DEFAULT 'A';
@@ -1560,6 +1640,8 @@ createApp({
       fundNameEditB: '',
       showDevModal: false,
       devTab: 'GUIDE',
+      excelDefaultFund: 'A',
+      importPreviewRows: [],
       toastMessage: '',
       migrationSqlCode: MIGRATION_SQL,
 
@@ -1581,6 +1663,7 @@ createApp({
         splitSharesB: 20,
         price: 15610,
         fee: 0,
+        loan_name: '증권담보대출',
         trade_date: '2026-11-11',
         allowMixPrincipal: true
       },
@@ -1687,8 +1770,10 @@ createApp({
                 name: tr.name || pInfo.name,
                 shares: 0,
                 cashShares: 0,
+                loanShares: 0,
                 reinvestShares: 0,
                 pureCashCost: 0,
+                loanCost: 0,
                 reinvestCost: 0,
                 realizedPnl: 0,
                 unaccountedFees: 0
@@ -1701,6 +1786,10 @@ createApp({
               pos.shares += tr.shares;
               pos.cashShares += tr.shares;
               pos.pureCashCost += costWithFee;
+            } else if (tr.trade_type === 'LOAN_BUY') {
+              pos.shares += tr.shares;
+              pos.loanShares += tr.shares;
+              pos.loanCost += costWithFee;
             } else if (tr.trade_type === 'REINVEST') {
               pos.shares += tr.shares;
               const mixedPrin = tr.principal_mixed_amount || 0;
@@ -1712,14 +1801,16 @@ createApp({
               pos.pureCashCost += mixedPrin;
             } else if (tr.trade_type === 'SELL') {
               if (pos.shares > 0) {
-                const avg = (pos.pureCashCost + pos.reinvestCost) / pos.shares;
+                const avg = (pos.pureCashCost + pos.loanCost + pos.reinvestCost) / pos.shares;
                 const sellRatio = Math.min(1, tr.shares / pos.shares);
                 const netSellProceeds = tr.shares * tr.price - (tr.fee || 0);
                 pos.realizedPnl += netSellProceeds - (avg * tr.shares);
                 pos.shares = Math.max(0, pos.shares - tr.shares);
                 pos.cashShares = Math.max(0, pos.cashShares * (1 - sellRatio));
+                pos.loanShares = Math.max(0, pos.loanShares * (1 - sellRatio));
                 pos.reinvestShares = Math.max(0, pos.reinvestShares * (1 - sellRatio));
                 pos.pureCashCost = Math.max(0, pos.pureCashCost * (1 - sellRatio));
+                pos.loanCost = Math.max(0, pos.loanCost * (1 - sellRatio));
                 pos.reinvestCost = Math.max(0, pos.reinvestCost * (1 - sellRatio));
               }
             }
@@ -1736,8 +1827,8 @@ createApp({
         else {
           const allTickers = new Set([...Object.keys(mapA), ...Object.keys(mapB)]);
           allTickers.forEach(tk => {
-            const a = mapA[tk] || { shares: 0, cashShares: 0, reinvestShares: 0, pureCashCost: 0, reinvestCost: 0, realizedPnl: 0 };
-            const b = mapB[tk] || { shares: 0, cashShares: 0, reinvestShares: 0, pureCashCost: 0, reinvestCost: 0, realizedPnl: 0 };
+            const a = mapA[tk] || { shares: 0, cashShares: 0, loanShares: 0, reinvestShares: 0, pureCashCost: 0, loanCost: 0, reinvestCost: 0, realizedPnl: 0 };
+            const b = mapB[tk] || { shares: 0, cashShares: 0, loanShares: 0, reinvestShares: 0, pureCashCost: 0, loanCost: 0, reinvestCost: 0, realizedPnl: 0 };
             const pInfo = this.pricesMap[tk] || { name: (a.name || b.name || tk) };
             holdingsMap[tk] = {
               key: 'ALL_' + tk,
@@ -1748,8 +1839,10 @@ createApp({
               sharesA: a.shares,
               sharesB: b.shares,
               cashShares: a.cashShares + b.cashShares,
+              loanShares: (a.loanShares || 0) + (b.loanShares || 0),
               reinvestShares: a.reinvestShares + b.reinvestShares,
               pureCashCost: a.pureCashCost + b.pureCashCost,
+              loanCost: (a.loanCost || 0) + (b.loanCost || 0),
               reinvestCost: a.reinvestCost + b.reinvestCost,
               realizedPnl: a.realizedPnl + b.realizedPnl
             };
@@ -1773,7 +1866,9 @@ createApp({
           pos.prevClose = p.prev_close || p.close_price;
           pos.changePct = p.change_pct || 0;
 
-          pos.totalAcquisition = pos.pureCashCost + pos.reinvestCost;
+          pos.loanShares = pos.loanShares || 0;
+          pos.loanCost = pos.loanCost || 0;
+          pos.totalAcquisition = pos.pureCashCost + pos.loanCost + pos.reinvestCost;
           pos.avgPrice = pos.shares > 0 ? Math.round(pos.totalAcquisition / pos.shares) : 0;
           pos.evalAmount = Math.round(pos.shares * pos.currentPrice);
           const prevEval = Math.round(pos.shares * pos.prevClose);
@@ -1797,11 +1892,12 @@ createApp({
           pos.yocCumRate = denom > 0 ? (pos.cumDividends / denom) * 100 : 0;
 
           pos.cashSharePct = pos.shares > 0 ? (pos.cashShares / pos.shares) * 100 : 0;
+          pos.loanSharePct = pos.shares > 0 ? (pos.loanShares / pos.shares) * 100 : 0;
           pos.reinvestSharePct = pos.shares > 0 ? (pos.reinvestShares / pos.shares) * 100 : 0;
 
           stockEvalKRW += pos.evalAmount;
           prevStockEvalKRW += prevEval;
-          totalPureCashCost += pos.pureCashCost;
+          totalPureCashCost += pos.pureCashCost + pos.loanCost;
           totalReinvestCost += pos.reinvestCost;
           totalReinvestShares += pos.reinvestShares;
           totalRealizedPnl += pos.realizedPnl;
@@ -1856,7 +1952,7 @@ createApp({
         // 매매 결제대금 차감/입금 반영
         txList.forEach(tr => {
           const totalAmt = tr.shares * tr.price + (tr.fee || 0);
-          if (tr.trade_type === 'BUY') {
+          if (tr.trade_type === 'BUY' || tr.trade_type === 'LOAN_BUY') {
             principalCashBucket -= totalAmt;
           } else if (tr.trade_type === 'REINVEST') {
             const mixedPrin = Number(tr.principal_mixed_amount || 0);
@@ -2051,6 +2147,9 @@ createApp({
       return this.fundSummaries.A.dividendCashBucket;
     },
 
+    importPreviewNewCount() {
+      return this.importPreviewRows.filter(r => !r.isDuplicate).length;
+    },
     availableDividendTickers() {
       const combined = this.fundSummaries.ALL.holdingsMap;
       const list = Object.values(combined).map(h => ({
@@ -2094,9 +2193,9 @@ createApp({
         { id: 1700000001, fund_id: 'A', trade_type: 'BUY', ticker: '498400', name: 'KODEX 200타겟위클리커버드콜', shares: 300, price: 15100, fee: 0, principal_mixed_amount: 0, trade_date: '2026-08-10' },
         { id: 1700000002, fund_id: 'A', trade_type: 'BUY', ticker: '486290', name: 'TIGER 미국나스닥100타겟데일리커버드콜', shares: 500, price: 9280, fee: 0, principal_mixed_amount: 0, trade_date: '2026-08-14' },
         { id: 1700000003, fund_id: 'A', trade_type: 'REINVEST', ticker: '498400', name: 'KODEX 200타겟위클리커버드콜', shares: 25, price: 15200, fee: 0, principal_mixed_amount: 0, trade_date: '2026-10-06' },
-        // 자금 B (대출 활용): 동일 종목 498400 200주 보유 + 472150 300주 보유
+        // 자금 B (대출 활용): 498400 200주(내원금 매수) + 472150 300주(대출금 매수 식별!)
         { id: 1700000004, fund_id: 'B', trade_type: 'BUY', ticker: '498400', name: 'KODEX 200타겟위클리커버드콜', shares: 200, price: 15300, fee: 0, principal_mixed_amount: 0, trade_date: '2026-09-02' },
-        { id: 1700000005, fund_id: 'B', trade_type: 'BUY', ticker: '472150', name: 'TIGER 배당커버드콜액티브', shares: 300, price: 14950, fee: 0, principal_mixed_amount: 0, trade_date: '2026-09-05' },
+        { id: 1700000005, fund_id: 'B', trade_type: 'LOAN_BUY', loan_name: '증권담보대출', ticker: '472150', name: 'TIGER 배당커버드콜액티브', shares: 300, price: 14950, fee: 0, principal_mixed_amount: 0, trade_date: '2026-09-05' },
         { id: 1700000006, fund_id: 'B', trade_type: 'REINVEST', ticker: '472150', name: 'TIGER 배당커버드콜액티브', shares: 10, price: 15050, fee: 0, principal_mixed_amount: 0, trade_date: '2026-10-08' }
       ];
     },
@@ -2372,6 +2471,7 @@ createApp({
           shares: sharesCount,
           price: Number(this.tradeForm.price),
           fee: feeShare,
+          loan_name: this.tradeForm.trade_type === 'LOAN_BUY' ? (this.tradeForm.loan_name || '대출금') : '',
           principal_mixed_amount: mixedPrin,
           trade_date: this.tradeForm.trade_date
         };
@@ -2877,6 +2977,97 @@ createApp({
       this.showToast('로컬 모드로 전환되었습니다.');
     },
 
+    exportExcelWorkbook() {
+      if (typeof XLSX === 'undefined') {
+        this.exportCsvLedger();
+        return;
+      }
+      const wb = XLSX.utils.book_new();
+
+      // 1) 매매원장 시트
+      const tradeRows = this.transactions.map(t => ({
+        '거래일자': t.trade_date,
+        '자금구분': t.fund_id,
+        '매매유형': t.trade_type,
+        '매매유형설명': t.trade_type === 'BUY' ? '내원금매수' : t.trade_type === 'LOAN_BUY' ? '대출금매수' : t.trade_type === 'REINVEST' ? '분배금재매수' : '매도',
+        '종목코드': t.ticker,
+        '종목명': t.name,
+        '수량': t.shares,
+        '체결단가': t.price,
+        '수수료': t.fee || 0,
+        '결제총액': t.shares * t.price + (t.fee || 0),
+        '연결대출명': t.loan_name || '',
+        '혼합원금사용액': t.principal_mixed_amount || 0
+      }));
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(tradeRows), '매매원장');
+
+      // 2) 분배금원장 시트
+      const divRows = this.dividends.map(d => ({
+        '지급일': d.pay_date,
+        '분배기준일': d.record_date || d.pay_date,
+        '자금구분': d.fund_id,
+        '상태': d.stage || 'RECEIVED',
+        '종목코드': d.ticker,
+        '종목명': this.getTickerName(d.ticker),
+        '지급대상수량': d.shares_held,
+        '주당분배금(세전)': d.dividend_per_share,
+        '세전총액': d.gross_amount || (d.shares_held * d.dividend_per_share),
+        '원천징수세금': d.tax_amount || 0,
+        '실입금액(세후)': d.total_received
+      }));
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(divRows), '분배금원장');
+
+      // 3) 현금·대출장부 시트
+      const cashRows = this.cashFlows.map(c => ({
+        '일자': c.flow_date,
+        '자금구분': c.fund_id,
+        '유형코드': c.flow_type,
+        '유형설명': this.getCashFlowLabel(c.flow_type),
+        '바구니': c.bucket,
+        '금액': c.amount,
+        '메모': c.memo || ''
+      }));
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(cashRows), '현금_이자장부');
+
+      // 4) 보유종목 요약 (내원금 vs 대출매수 vs 배당복리 주식 식별)
+      const holdRows = Object.values(this.fundSummaries.ALL.holdingsMap).map(h => ({
+        '종목코드': h.ticker,
+        '종목명': h.name,
+        '총보유주수': h.shares,
+        '자금A주수': h.sharesA || 0,
+        '자금B주수': h.sharesB || 0,
+        '내원금매수주수': Number(h.cashShares.toFixed(2)),
+        '대출금매수주수': Number((h.loanShares || 0).toFixed(2)),
+        '배당재매수주수': Number(h.reinvestShares.toFixed(2)),
+        '평균단가': h.avgPrice,
+        '현재가': h.currentPrice,
+        '평가금액': h.evalAmount,
+        '누적실수령분배금': h.cumDividends,
+        '배당포함실질총수익(TR)': h.totalReturnKRW
+      }));
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(holdRows), '보유종목_대출식별');
+
+      XLSX.writeFile(wb, '국장커버드콜_통합장부_v2.xlsx');
+      this.showToast('엑셀(.xlsx) 4개 시트 통합장부가 다운로드되었습니다.');
+    },
+
+    downloadExcelTemplate() {
+      if (typeof XLSX === 'undefined') return;
+      const wb = XLSX.utils.book_new();
+      const sampleTrades = [
+        { '거래일자': '2026-11-11', '자금구분': 'A', '매매유형': 'BUY', '종목코드': '498400', '종목명': 'KODEX 200타겟위클리커버드콜', '수량': 100, '체결단가': 15610, '수수료': 0, '연결대출명': '' },
+        { '거래일자': '2026-11-11', '자금구분': 'B', '매매유형': 'LOAN_BUY', '종목코드': '472150', '종목명': 'TIGER 배당커버드콜액티브', '수량': 200, '체결단가': 15130, '수수료': 0, '연결대출명': '증권담보대출' },
+        { '거래일자': '2026-11-11', '자금구분': 'A', '매매유형': 'REINVEST', '종목코드': '486290', '종목명': 'TIGER 미국나스닥100타겟데일리커버드콜', '수량': 15, '체결단가': 9410, '수수료': 0, '연결대출명': '' }
+      ];
+      const sampleDivs = [
+        { '지급일': '2026-11-04', '분배기준일': '2026-10-29', '자금구분': 'A', '상태': 'RECEIVED', '종목코드': '498400', '지급대상수량': 100, '주당분배금(세전)': 245, '원천징수세금': 600, '실입금액(세후)': 23900 }
+      ];
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sampleTrades), '매매원장');
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sampleDivs), '분배금원장');
+      XLSX.writeFile(wb, '커버드콜_엑셀업로드_양식.xlsx');
+      this.showToast('엑셀 업로드 표준 양식(.xlsx)이 다운로드되었습니다.');
+    },
+
     exportCsvLedger() {
       const rows = [
         ['구분', '일자', '자금', '종목코드', '종목명/내용', '수량', '단가/세전', '세금/수수료', '최종금액']
@@ -2924,27 +3115,131 @@ createApp({
     handleFileImport(e) {
       const file = e.target.files && e.target.files[0];
       if (!file) return;
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        try {
-          const text = ev.target.result;
-          if (file.name.endsWith('.json')) {
-            const data = JSON.parse(text);
+
+      if (file.name.endsWith('.json')) {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          try {
+            const data = JSON.parse(ev.target.result);
             if (data.transactions) this.transactions = data.transactions;
             if (data.dividends) this.dividends = data.dividends;
             if (data.cashFlows) this.cashFlows = data.cashFlows;
             if (data.loans) this.loans = data.loans;
             if (data.pricesMap) this.pricesMap = data.pricesMap;
             this.persistAll();
-            this.showToast('JSON 백업 데이터가 복원되었습니다.');
+            this.showToast('JSON 전체 백업 데이터가 복원되었습니다.');
+          } catch (err) {
+            this.showToast('JSON 파일 형식을 확인해 주세요.');
+          }
+        };
+        reader.readAsText(file);
+        return;
+      }
+
+      // 엑셀(.xlsx / .xls / .csv) 파싱 및 미리보기 생성
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        try {
+          const data = new Uint8Array(ev.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const preview = [];
+
+          workbook.SheetNames.forEach(sheetName => {
+            const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+            rows.forEach(r => {
+              const fund = String(r['자금구분'] || r['자금'] || r['fund_id'] || this.excelDefaultFund).toUpperCase() === 'B' ? 'B' : 'A';
+              // 매매 행 판별
+              if (r['매매유형'] || r['trade_type'] || r['체결단가'] || r['수량']) {
+                const rawType = String(r['매매유형'] || r['trade_type'] || 'BUY').toUpperCase();
+                let tType = 'BUY';
+                if (rawType.includes('LOAN') || rawType.includes('대출')) tType = 'LOAN_BUY';
+                else if (rawType.includes('REINVEST') || rawType.includes('재매수') || rawType.includes('배당')) tType = 'REINVEST';
+                else if (rawType.includes('SELL') || rawType.includes('매도')) tType = 'SELL';
+
+                const tk = this.normalizeTicker(r['종목코드'] || r['ticker'] || '498400');
+                const shares = Number(r['수량'] || r['shares'] || 0);
+                const price = Number(r['체결단가'] || r['단가'] || r['price'] || 0);
+                const date = String(r['거래일자'] || r['일자'] || r['trade_date'] || '2026-11-11').slice(0, 10);
+                const fee = Number(r['수수료'] || r['fee'] || 0);
+                const loanName = String(r['연결대출명'] || r['loan_name'] || '');
+                const name = r['종목명'] || r['name'] || this.getTickerName(tk);
+
+                if (shares > 0 && price > 0) {
+                  const isDup = this.transactions.some(ex => ex.trade_date === date && ex.ticker === tk && ex.shares === shares && ex.price === price && ex.fund_id === fund);
+                  preview.push({
+                    kind: 'TRADE',
+                    category: tType === 'LOAN_BUY' ? '대출매수' : tType === 'REINVEST' ? '재매수' : tType === 'SELL' ? '매도' : '원금매수',
+                    isDuplicate: isDup,
+                    fund_id: fund,
+                    date,
+                    title: `${name} ${shares}주`,
+                    amount: shares * price + fee,
+                    payload: { trade_type: tType, ticker: tk, name, shares, price, fee, loan_name: loanName, trade_date: date }
+                  });
+                }
+              } else if (r['실입금액(세후)'] || r['주당분배금(세전)'] || r['total_received']) {
+                const tk = this.normalizeTicker(r['종목코드'] || r['ticker'] || '498400');
+                const payDate = String(r['지급일'] || r['pay_date'] || '2026-11-04').slice(0, 10);
+                const recDate = String(r['분배기준일'] || r['record_date'] || payDate).slice(0, 10);
+                const sharesHeld = Number(r['지급대상수량'] || r['shares_held'] || 100);
+                const dps = Number(r['주당분배금(세전)'] || r['dividend_per_share'] || 0);
+                const tax = Number(r['원천징수세금'] || r['tax_amount'] || 0);
+                const net = Number(r['실입금액(세후)'] || r['total_received'] || (sharesHeld * dps - tax));
+
+                if (net > 0) {
+                  const isDup = this.dividends.some(ex => ex.pay_date === payDate && ex.ticker === tk && ex.total_received === net && ex.fund_id === fund);
+                  preview.push({
+                    kind: 'DIVIDEND',
+                    category: '분배금',
+                    isDuplicate: isDup,
+                    fund_id: fund,
+                    date: payDate,
+                    title: `${this.getTickerName(tk)} 분배금`,
+                    amount: net,
+                    payload: { stage: r['상태'] || 'RECEIVED', ticker: tk, shares_held: sharesHeld, dividend_per_share: dps, gross_amount: sharesHeld * dps, tax_amount: tax, total_received: net, record_date: recDate, pay_date: payDate }
+                  });
+                }
+              }
+            });
+          });
+
+          this.importPreviewRows = preview;
+          if (preview.length === 0) {
+            this.showToast('인식된 거래 행이 없습니다. [엑셀 업로드 양식]을 참고해 주세요.');
           } else {
-            this.showToast('CSV 파일 확인 완료: 거래 내역을 가져왔습니다.');
+            this.showToast(`엑셀에서 ${preview.length}건의 기록을 불러왔습니다. 미리보기를 확인해 주세요.`);
           }
         } catch (err) {
-          this.showToast('파일 형식을 확인해 주세요.');
+          this.showToast('엑셀 파일 읽기에 실패했습니다.');
         }
       };
-      reader.readAsText(file);
+      reader.readAsArrayBuffer(file);
+    },
+
+    confirmExcelImport() {
+      let added = 0;
+      this.importPreviewRows.forEach((row, i) => {
+        if (row.isDuplicate) return;
+        if (row.kind === 'TRADE') {
+          this.transactions.push({
+            id: Date.now() + i,
+            fund_id: row.fund_id,
+            ...row.payload,
+            principal_mixed_amount: 0
+          });
+          added++;
+        } else if (row.kind === 'DIVIDEND') {
+          this.dividends.push({
+            id: Date.now() + 1000 + i,
+            fund_id: row.fund_id,
+            ...row.payload
+          });
+          added++;
+        }
+      });
+      this.importPreviewRows = [];
+      this.persistAll();
+      this.showToast(`총 ${added}건의 엑셀 내역이 장부에 일괄 반영되었습니다!`);
     }
   }
 }).mount('#app');

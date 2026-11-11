@@ -1,239 +1,167 @@
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python3
 """
-Covered Call Asset Tracker - Daily Price Updater
-(야후 파이낸스를 사용하지 않고 100% 네이버 증권/글로벌 공식 실시간 API 연동)
-매일 장마감 후 또는 종목 추가 시 Supabase daily_prices 테이블을 자동 갱신하는 크롤러
+Covered Call Tracker v2.0 - 국내 상장 커버드콜 ETF 시초가 / 12시 정오가 / 마감종가 수집기
+표준 라이브러리(urllib, json, os, datetime)만 사용하여 별도 pip 패키지 설치 없이 동작합니다.
 """
-
-import os
-import sys
 import json
+import os
+import time
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
-# Supabase 접속 정보 (환경 변수 또는 기본값)
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://wlavetbnglzrpkeyesqv.supabase.co")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndsYXZldGJuZ2x6cnBrZXllc3F2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg1NDQ1MTMsImV4cCI6MjEwNDEyMDUxM30.1hk6OBMoqTcpUHEVxjXlIfr1SKf776sa-65xPPSy35M")
+KST = timezone(timedelta(hours=9))
 
-HEADERS = {
-    "apikey": SUPABASE_KEY,
-    "Authorization": f"Bearer {SUPABASE_KEY}",
-    "Content-Type": "application/json",
-    "Prefer": "resolution=merge-duplicates"
-}
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 
-def normalize_ticker(t: str) -> str:
-    """티커 오타 및 접미사 정규화 (예: 498400KOSPI -> 498400, A498400 -> 498400, 영문 O198A0 -> 숫자 0198A0)"""
-    if not t:
-        return ""
-    clean = t.strip().upper()
-    # 공백 제거
-    clean = "".join(clean.split())
-    # 접미사 (KOSPI, KOSDAQ, .KS, .KQ, 코스피, 코스닥) 제거
-    for suffix in [".KS", ".KQ", "KOSPI", "KOSDAQ", "코스피", "코스닥"]:
-        if clean.endswith(suffix):
-            clean = clean[:-len(suffix)]
-            break
-    # 7자리이고 'A'로 시작하는 국내 HTS 코드 포맷(A498400) 처리
-    if len(clean) == 7 and clean.startswith("A"):
-        clean = clean[1:]
-    # 영문 O로 시작하는 6자리 종목코드 숫자 0으로 변환
-    if clean.startswith("O") and len(clean) == 6:
-        clean = "0" + clean[1:]
-    return clean
+DEFAULT_KR_TICKERS = [
+    ("498400", "KODEX 200타겟위클리커버드콜"),
+    ("486290", "TIGER 미국나스닥100타겟데일리커버드콜"),
+    ("482730", "TIGER 미국S&P500타겟데일리커버드콜"),
+    ("472150", "TIGER 배당커버드콜액티브"),
+    ("483290", "KODEX 미국배당다우존스타겟커버드콜"),
+    ("475720", "RISE 200위클리커버드콜"),
+    ("494300", "KODEX 미국나스닥100데일리커버드콜OTM"),
+    ("0198A0", "KIWOOM 코스닥150커버드콜액티브"),
+    ("0104N0", "TIGER 200타겟위클리커버드콜"),
+    ("0167B0", "SOL 200타겟위클리커버드콜"),
+    ("0008S0", "TIGER 미국배당다우존스타겟데일리커버드콜"),
+    ("166400", "TIGER 200커버드콜OTM"),
+    ("289480", "TIGER 200커버드콜"),
+    ("0177R0", "TIGER 반도체TOP10커버드콜액티브"),
+]
 
-def get_target_tickers():
-    """Supabase transactions 테이블에서 등록된 모든 종목 티커를 동적으로 수집"""
-    tickers = set()
-    raw_map = {}
-    
-    # 기본 감시 및 주요 커버드콜 종목들
-    default_tickers = [
-        "498400", "498410", "0198A0", "0219E0", "472150", "472160", "441680", "486290", "482730", "458730", "458740",
-        "453850", "484980", "486300", "491620", "491630", "492060", "492070", "482720", "483280", "483290",
-        "JEPQ", "JEPI", "TSLY", "CONY", "NVDY", "MSTY", "SPYI", "QQQI", "SCHD", "O"
-    ]
-    for dt in default_tickers:
-        norm = normalize_ticker(dt)
-        tickers.add(norm)
-        raw_map[norm] = dt.strip().upper()
 
+def parse_num(val):
+    if val is None:
+        return 0.0
+    if isinstance(val, (int, float)):
+        return float(val)
+    s = str(val).replace(",", "").replace("%", "").strip()
     try:
-        url = f"{SUPABASE_URL}/rest/v1/transactions?select=ticker"
-        req = urllib.request.Request(url, headers=HEADERS)
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode())
-            for row in data:
-                raw_t = row.get("ticker", "").strip().upper()
-                norm = normalize_ticker(raw_t)
-                if norm:
-                    tickers.add(norm)
-                    if norm not in raw_map or raw_t != norm:
-                        raw_map[norm] = raw_t
-    except Exception as e:
-        print(f"[경고] Supabase 거래내역 조회 실패, 기본 목록 사용: {e}")
+        return float(s)
+    except ValueError:
+        return 0.0
 
-    return sorted(list(tickers)), raw_map
 
-def fetch_kr_stock(ticker: str):
-    """국내 주식/ETF 실시간 시세 및 공식 종목명 수집 (네이버 모바일 + 네이버 폴링 + 야후 파이낸스 3중 백업)"""
-    norm = normalize_ticker(ticker)
-    
-    # 1차 시도: 네이버 모바일 증권 API (해외 클라우드 IP 차단 없음)
-    try:
-        m_url = f"https://m.stock.naver.com/api/stock/{norm}/basic"
-        m_req = urllib.request.Request(m_url, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Referer": "https://m.stock.naver.com/"
-        })
-        with urllib.request.urlopen(m_req, timeout=8) as resp:
-            d = json.loads(resp.read().decode())
-            if d and d.get("closePrice"):
-                close_price = float(str(d["closePrice"]).replace(",", ""))
-                change_amt = float(str(d.get("compareToPreviousClosePrice", 0)).replace(",", ""))
-                change_pct = float(str(d.get("fluctuationsRatio", 0)).replace(",", ""))
-                stock_name = d.get("stockName", norm)
-                prev_close = close_price - change_amt if close_price > 0 else close_price
-                return {
-                    "ticker": norm,
-                    "name": stock_name,
-                    "close_price": close_price,
-                    "prev_close": prev_close,
-                    "change_pct": round(change_pct, 2),
-                    "market": "KR",
-                    "updated_at": datetime.utcnow().isoformat()
-                }
-    except Exception:
-        pass
+def _fetch_naver_json(url: str):
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
+            "Referer": "https://m.stock.naver.com/",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        return json.loads(resp.read().decode("utf-8"))
 
-    # 2차 시도: 네이버 폴링 API
-    try:
-        url = f"https://polling.finance.naver.com/api/realtime/domestic/stock/{norm}"
-        req = urllib.request.Request(url, headers={
-            "User-Agent": "Mozilla/5.0",
-            "Referer": f"https://finance.naver.com/item/main.naver?code={norm}"
-        })
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            res_json = json.loads(resp.read().decode())
-            datas = res_json.get("datas", [])
-            if datas:
-                item = datas[0]
-                close_price = float(str(item.get("closePriceRaw", item.get("closePrice", 0))).replace(",", ""))
-                change_amt = float(str(item.get("compareToPreviousClosePriceRaw", item.get("compareToPreviousClosePrice", 0))).replace(",", ""))
-                change_pct = float(str(item.get("fluctuationsRatioRaw", item.get("fluctuationsRatio", 0))).replace(",", ""))
-                stock_name = item.get("stockName", norm)
-                prev_close = close_price - change_amt if close_price > 0 else close_price
-                return {
-                    "ticker": norm,
-                    "name": stock_name,
-                    "close_price": close_price,
-                    "prev_close": prev_close,
-                    "change_pct": round(change_pct, 2),
-                    "market": "KR",
-                    "updated_at": datetime.utcnow().isoformat()
-                }
-    except Exception:
-        pass
 
-    # 3차 시도: 야후 파이낸스 글로벌 백업 (.KS)
-    try:
-        y_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{norm}.KS"
-        y_req = urllib.request.Request(y_url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(y_req, timeout=8) as resp:
-            y_data = json.loads(resp.read().decode())
-            meta = y_data["chart"]["result"][0]["meta"]
-            close_price = float(meta["regularMarketPrice"])
-            prev_close = float(meta.get("previousClose", close_price))
-            change_pct = round(((close_price - prev_close) / prev_close) * 100, 2) if prev_close > 0 else 0
-            stock_name = meta.get("shortName", norm)
-            return {
-                "ticker": norm,
-                "name": stock_name,
-                "close_price": close_price,
-                "prev_close": prev_close,
-                "change_pct": change_pct,
-                "market": "KR",
-                "updated_at": datetime.utcnow().isoformat()
-            }
-    except Exception as e:
-        print(f"[{ticker}] 국내 종가 수집 전체 실패: {e}")
-        return None
+def fetch_naver_etf_price(ticker: str):
+    """네이버 모바일 증권 API에서 당일 시초가(openPrice), 현재/종가(closePrice), 전일종가 조회"""
+    data = _fetch_naver_json(f"https://m.stock.naver.com/api/stock/{ticker}/basic")
 
-def fetch_us_stock(ticker: str):
-    """미국 ETF/주식 실시간 시세 수집 (네이버 글로벌 증권 공식 API)"""
-    t = ticker.strip().upper()
-    for suffix in [".O", ".N", ".K", ""]:
-        url = f"https://polling.finance.naver.com/api/realtime/worldstock/stock/{t}{suffix}"
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    close_price = parse_num(data.get("closePrice"))
+    open_price = parse_num(data.get("openPrice"))
+    prev_close = parse_num(data.get("compareToPreviousClosePrice"))
+    change_pct = parse_num(data.get("fluctuationsRatio"))
+    if prev_close != 0 and close_price > 0:
+        # compareToPreviousClosePrice가 전일대비 등락폭인 경우 전일종가 역산
+        if abs(prev_close) < close_price * 0.5:
+            prev_close = close_price - prev_close
+    else:
+        prev_close = close_price
+
+    # /basic 응답에는 openPrice가 없는 경우가 많아 /integration의 totalInfos에서 시초가 보완
+    if open_price <= 0:
         try:
-            with urllib.request.urlopen(req, timeout=8) as resp:
-                res_json = json.loads(resp.read().decode())
-                datas = res_json.get("datas", [])
-                if datas:
-                    item = datas[0]
-                    close_price = float(str(item.get("closePriceRaw", item.get("closePrice", 0))).replace(",", ""))
-                    change_pct = float(str(item.get("fluctuationsRatioRaw", item.get("fluctuationsRatio", 0))).replace(",", ""))
-                    change_amt = float(str(item.get("compareToPreviousClosePriceRaw", item.get("compareToPreviousClosePrice", 0))).replace(",", ""))
-                    stock_name = item.get("stockName", t)
-                    prev_close = close_price - change_amt if close_price > 0 else close_price
-                    
-                    return {
-                        "ticker": t,
-                        "name": stock_name,
-                        "close_price": close_price,
-                        "prev_close": prev_close,
-                        "change_pct": round(change_pct, 2),
-                        "market": "US",
-                        "updated_at": datetime.utcnow().isoformat()
-                    }
-        except Exception:
-            continue
-    return None
+            integ = _fetch_naver_json(f"https://m.stock.naver.com/api/stock/{ticker}/integration")
+            infos = {
+                item.get("code"): item.get("value")
+                for item in integ.get("totalInfos", [])
+                if isinstance(item, dict)
+            }
+            integ_open = parse_num(infos.get("openPrice"))
+            if integ_open > 0:
+                open_price = integ_open
+            if prev_close <= 0:
+                integ_prev = parse_num(infos.get("lastClosePrice"))
+                if integ_prev > 0:
+                    prev_close = integ_prev
+        except Exception as e:
+            print(f"[WARN] {ticker} 시초가 상세 조회 실패(종가로 대체): {e}")
 
-def upsert_to_supabase(records):
-    """수집된 종가 정보를 Supabase daily_prices 테이블에 Upsert"""
-    if not records:
-        print("저장할 종가 데이터가 없습니다.")
+    if open_price <= 0:
+        open_price = close_price
+
+    return {
+        "open_price": open_price,
+        "close_price": close_price,
+        "prev_close": prev_close,
+        "change_pct": change_pct,
+    }
+
+
+def determine_price_slot(now_kst: datetime) -> str:
+    hhmm = now_kst.hour * 100 + now_kst.minute
+    if hhmm < 1130:
+        return "OPEN"
+    if 1130 <= hhmm < 1500:
+        return "NOON"
+    return "CLOSE"
+
+
+def upsert_to_supabase(rows):
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        print("[INFO] SUPABASE_URL / SUPABASE_KEY 미설정: 콘솔 출력만 수행합니다.")
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
         return
 
-    url = f"{SUPABASE_URL}/rest/v1/daily_prices"
-    req = urllib.request.Request(url, data=json.dumps(records).encode("utf-8"), headers=HEADERS, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            print(f"✅ Supabase daily_prices {len(records)}건 업데이트 완료 (응답코드: {resp.status})")
-    except Exception as e:
-        print(f"❌ Supabase daily_prices 저장 중 에러 발생: {e}")
+    endpoint = f"{SUPABASE_URL}/rest/v1/daily_prices"
+    body = json.dumps(rows).encode("utf-8")
+    req = urllib.request.Request(
+        endpoint,
+        data=body,
+        method="POST",
+        headers={
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+            "Content-Type": "application/json",
+            "Prefer": "resolution=merge-duplicates",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        print(f"[OK] Supabase daily_prices Upsert 완료 (HTTP {resp.status}, {len(rows)}건)")
+
 
 def main():
-    print(f"=== 커버드콜 네이버 금융 종가 자동 수집 시작 ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')}) ===")
-    tickers, raw_map = get_target_tickers()
-    print(f"총 수집 대상 종목: {len(tickers)}개 -> {tickers}")
+    now_kst = datetime.now(KST)
+    slot = determine_price_slot(now_kst)
+    rows = []
 
-    results = []
-    for ticker in tickers:
-        is_us = ticker.isalpha() and len(ticker) <= 5
-        if is_us:
-            data = fetch_us_stock(ticker)
-        else:
-            data = fetch_kr_stock(ticker)
+    for ticker, name in DEFAULT_KR_TICKERS:
+        try:
+            info = fetch_naver_etf_price(ticker)
+            row = {
+                "ticker": ticker,
+                "name": name,
+                "open_price": info["open_price"],
+                "close_price": info["close_price"],
+                "prev_close": info["prev_close"],
+                "change_pct": info["change_pct"],
+                "market": "KR",
+                "price_slot": slot,
+                "updated_at": now_kst.isoformat(),
+            }
+            if slot == "NOON":
+                row["noon_price"] = info["close_price"]
+            rows.append(row)
+        except Exception as e:
+            print(f"[WARN] {ticker} ({name}) 조회 실패: {e}")
+        time.sleep(0.1)
 
-        if data:
-            results.append(data)
-            print(f"  ✓ [{data['ticker']}] {data['name']} : {data['close_price']:,} (전일비 {data['change_pct']}%)")
-            
-            # 혹시 사용자가 'O198A0' 처럼 영문 O로 등록한 거래내역이 있으면 그 키로도 함께 보존
-            orig_t = raw_map.get(ticker)
-            if orig_t and orig_t != data["ticker"]:
-                alias = dict(data)
-                alias["ticker"] = orig_t
-                results.append(alias)
-                print(f"    -> 별칭 티커 매핑 [{orig_t}] 동기화 추가")
-        else:
-            print(f"  ✗ [{ticker}] 시세 수집 실패")
+    if rows:
+        upsert_to_supabase(rows)
 
-    if results:
-        upsert_to_supabase(results)
-    print("=== 모든 종가 갱신 작업 완료 ===")
 
 if __name__ == "__main__":
     main()
